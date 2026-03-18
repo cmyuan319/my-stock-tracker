@@ -7,63 +7,45 @@ import os
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import time
 
-# --- 頁面基本設定 ---
-st.set_page_config(page_title="長期投資看板", layout="wide", page_icon="📈")
+# --- 頁面基本設定 (名稱已改為 長期投資) ---
+st.set_page_config(page_title="長期投資", layout="wide", page_icon="📈")
 
-# --- 頁面基本設定 ---
-st.set_page_config(page_title="長期投資看板", layout="wide", page_icon="📈")
+# --- 雲端與本機路徑設定 ---
+DATA_FILE = "stock_data.json" 
+GCP_KEY_FILE = "gcp_key.json" 
+SHEET_ID = "1iaKyWl8WwQv9Anpgb28drGEX0CrxmwIDF6BsOqI9UxM" # ⚠️ 請記得在這裡貼回你的 Google 試算表 ID ⚠️
 
 # ==========================================
 # 🛑 密碼保護防護網 🛑
 # ==========================================
 def check_password():
-    # 如果已經登入成功過，就直接放行
     if st.session_state.get("password_correct", False):
         return True
-
-    # 畫一個置中的登入畫面
     st.markdown("<h3 style='text-align: center; color: #003366;'>🔒 請輸入專屬密碼</h3>", unsafe_allow_html=True)
-    
-    # 密碼輸入框 (輸入時會變成黑點)
     pwd_input = st.text_input("Password", type="password", key="pwd_input")
-    
     if pwd_input:
-        # 核對保險箱裡的密碼
         if pwd_input == st.secrets["app_password"]:
             st.session_state["password_correct"] = True
-            st.rerun() # 密碼正確，重新整理畫面放行
+            st.rerun()
         else:
             st.error("❌ 密碼錯誤！這不是你的看盤軟體！")
     return False
 
-# 如果密碼不對，程式就強制停止在這裡，下面的畫面通通不准跑！
 if not check_password():
     st.stop()
 # ==========================================
-
-# --- 雲端與本機路徑設定 ---
-DATA_FILE = "stock_data.json" 
-# ... (下面維持你原本的所有程式碼) ...
-
-# --- 雲端與本機路徑設定 ---
-DATA_FILE = "stock_data.json" # 舊的本機存檔
-GCP_KEY_FILE = "gcp_key.json" # Google 金鑰檔
-SHEET_ID = "1iaKyWl8WwQv9Anpgb28drGEX0CrxmwIDF6BsOqI9UxM" # ⚠️ 請在這裡貼上你的 Google 試算表 ID ⚠️
 
 # --- Google Sheets 連線與資料搬家邏輯 ---
 @st.cache_resource
 def init_gspread():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    
-    # 雲端環境：從 Secrets 保險箱讀取我們貼上的 JSON 字串
     if "gcp_json" in st.secrets:
         key_dict = json.loads(st.secrets["gcp_json"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict)
-    # 本機環境：讀取資料夾裡的 json 檔案
     else:
         creds = ServiceAccountCredentials.from_json_keyfile_name(GCP_KEY_FILE, scope)
-        
     client = gspread.authorize(creds)
     return client
 
@@ -72,31 +54,24 @@ def load_data():
         client = init_gspread()
         sheet = client.open_by_key(SHEET_ID).sheet1
         val = sheet.acell('A1').value
-        
-        # 如果雲端有資料，直接讀取
         if val:
             return json.loads(val)
-            
-        # 如果雲端沒有資料，啟動「自動搬家」程序！
         elif os.path.exists(DATA_FILE):
             st.toast("🚀 偵測到本機紀錄，正在為您自動上傳至 Google 雲端...", icon="☁️")
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 local_data = json.load(f)
-            # 把本機資料寫上雲端
             sheet.update_acell('A1', json.dumps(local_data, ensure_ascii=False))
-            st.toast("✅ 雲端搬家完成！以後皆自動同步至 Google 試算表。", icon="🎉")
             return local_data
-            
     except Exception as e:
-        st.error(f"連線 Google 試算表失敗，請檢查金鑰與 ID: {e}")
+        st.error(f"連線 Google 試算表失敗: {e}")
         
-    return {"fee_discount": 6.0, "pledge_amount": 500000.0, "buy_records": [], "realized_records": []}
+    # 新增 history 字典用來存放每日獲利
+    return {"fee_discount": 6.0, "pledge_amount": 500000.0, "buy_records": [], "realized_records": [], "history": {}}
 
 def save_data(data):
     try:
         client = init_gspread()
         sheet = client.open_by_key(SHEET_ID).sheet1
-        # 將字典轉成 JSON 字串存入 A1 儲存格
         sheet.update_acell('A1', json.dumps(data, ensure_ascii=False))
     except Exception as e:
         st.error(f"儲存至雲端失敗: {e}")
@@ -107,14 +82,15 @@ if "db" not in st.session_state:
 
 db = st.session_state.db
 
-# --- 核心計算與爬蟲 ---
-# --- 核心計算與爬蟲 ---
+# 為了相容舊資料，確保 history 欄位存在
+if "history" not in db:
+    db["history"] = {}
+
+# --- 核心計算與雙引擎爬蟲 ---
 @st.cache_data(ttl=60)
 def fetch_price(ticker):
     price = 0.0
     name = ticker
-    
-    # 1. 引擎 A：從 Google 財經抓取「即時股價」 (報價穩定且快速)
     try:
         url_g = f"https://www.google.com/finance/quote/{ticker}:TPE?hl=zh-TW"
         resp_g = requests.get(url_g, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -125,23 +101,17 @@ def fetch_price(ticker):
     except:
         pass
         
-    # 2. 引擎 B：從 Yahoo 奇摩股市抓取「股票名稱」 (中文名稱最精準)
     try:
         url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
         resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup_y = BeautifulSoup(resp_y.text, 'html.parser')
-        
-        # 改抓網頁的 <title> 標籤 (例如："元大台灣50(0050) - 股價走勢 - Yahoo奇摩股市")
         title_tag = soup_y.find('title')
         if title_tag:
-            # 用 split('(') 從左括號切開，並用 strip() 去除多餘空白，只保留最前面的中文
             extracted_name = title_tag.text.split('(')[0].strip()
-            # 避免抓到 Yahoo 錯誤頁面的預設標題
             if "Yahoo" not in extracted_name:
                 name = extracted_name
     except:
         pass
-        
     return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
@@ -277,11 +247,9 @@ for t, d in agg.items():
     tot_unrealized += un_profit
     ret_rate = (un_profit / cost) * 100 if cost > 0 else 0
     
-    color = "red" if un_profit > 0 else "green" if un_profit < 0 else "black"
-    
     display_data.append({
         "ticker": t, "name": name, "shares": shares, "avg_cost": avg_cost, 
-        "curr_p": curr_p, "mv": mv, "un_profit": un_profit, "ret_rate": ret_rate, "color": color
+        "curr_p": curr_p, "mv": mv, "un_profit": un_profit, "ret_rate": ret_rate
     })
 
 tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db["realized_records"])
@@ -293,6 +261,14 @@ else: lev_str = "0.0x"
 
 m_ratio = (tot_mv / db["pledge_amount"] * 100) if db["pledge_amount"] > 0 else 0
 tot_profit = tot_unrealized + tot_realized
+
+# --- 🚀 每日總獲利自動記錄邏輯 ---
+today_str = datetime.today().strftime('%Y-%m-%d')
+# 只在獲利有變動，或者是今天還沒記錄時，才上傳寫入雲端 (節省資源)
+if db["history"].get(today_str) != tot_profit:
+    db["history"][today_str] = tot_profit
+    save_data(db)
+# ---------------------------------
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("0050 現值", f"${v0050:,.0f}")
@@ -310,20 +286,16 @@ col10.metric("總獲利", f"${tot_profit:,.0f}")
 
 st.divider()
 
-tab1, tab2 = st.tabs(["📉 未實現損益", "💰 已實現損益"])
+# 新增了第三個分頁：獲利走勢
+tab1, tab2, tab3 = st.tabs(["📉 未實現損益", "💰 已實現損益", "📈 獲利走勢"])
 
 with tab1:
     if display_data:
         st.write("點擊各股票展開詳細數據與操作：")
         for item in display_data:
-            # 依照賺賠決定圖示
-            icon = "🔴" if item['un_profit'] > 0 else "🟢" if item['un_profit'] < 0 else "⚫"
-            
-            # 建立折疊卡片 (Expander)，把最關鍵的資訊放在標題
-            card_title = f"{icon} {item['ticker']} {item['name']} ｜ 報酬率: {item['ret_rate']:.2f}%"
-            
+            # 移除了燈號
+            card_title = f"{item['ticker']} {item['name']} ｜ 報酬率: {item['ret_rate']:.2f}%"
             with st.expander(card_title):
-                # 卡片內部使用 metric (指標) 排版，在手機上會自動美觀地排列
                 c1, c2, c3 = st.columns(3)
                 c1.metric("總股數", f"{item['shares']:,}")
                 c2.metric("均價", f"${item['avg_cost']:.2f}")
@@ -335,8 +307,6 @@ with tab1:
                 c6.metric("報酬率", f"{item['ret_rate']:.2f}%")
                 
                 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-                
-                # 將兩個操作按鈕橫向並排，並填滿寬度 (非常適合手機手指點擊)
                 btn1, btn2 = st.columns(2)
                 if btn1.button("🔍 買進明細", key=f"detail_{item['ticker']}", use_container_width=True):
                     show_details_dialog(item['ticker'], item['name'])
@@ -352,11 +322,8 @@ with tab2:
             p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
             _, name = fetch_price(r["ticker"])
             
-            # 判斷賺賠圖示
-            icon = "🔴" if p > 0 else "🟢" if p < 0 else "⚫"
-            
-            # 卡片標題：日期 ｜ 代號名稱 ｜ 賺賠金額
-            card_title = f"{icon} {r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
+            # 移除了燈號
+            card_title = f"{r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
             
             with st.expander(card_title):
                 c1, c2, c3 = st.columns(3)
@@ -366,6 +333,18 @@ with tab2:
     else:
         st.info("目前還沒有賣出紀錄。")
 
-# --- 底部標語 (已移至最下方、斜體放大加粗) ---
-st.write("") # 空行留白
-st.markdown("<h2 style='text-align: center; color: #003366; font-style: italic; font-weight: bold;'>躺在指數的道路上耍廢 🛋️</h2>", unsafe_allow_html=True)
+with tab3:
+    st.markdown("### 📅 每日總獲利走勢")
+    if db["history"]:
+        # 將字典轉換成圖表所需的 DataFrame 格式
+        df_hist = pd.DataFrame(list(db["history"].items()), columns=["日期", "總獲利"])
+        df_hist["日期"] = pd.to_datetime(df_hist["日期"])
+        df_hist = df_hist.set_index("日期")
+        
+        # 繪製曲線圖
+        st.line_chart(df_hist)
+    else:
+        st.info("目前還沒有歷史資料，系統會從今天開始自動幫你記錄！")
+
+st.write("") 
+st.markdown("<h2 style='text-align: center; color: #003366; font-style: italic; font-weight: bold;'>長期投資</h2>", unsafe_allow_html=True)
