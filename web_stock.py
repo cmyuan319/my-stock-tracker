@@ -11,6 +11,41 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="長期投資看板", layout="wide", page_icon="📈")
 
+# --- 頁面基本設定 ---
+st.set_page_config(page_title="長期投資看板", layout="wide", page_icon="📈")
+
+# ==========================================
+# 🛑 密碼保護防護網 🛑
+# ==========================================
+def check_password():
+    # 如果已經登入成功過，就直接放行
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # 畫一個置中的登入畫面
+    st.markdown("<h3 style='text-align: center; color: #003366;'>🔒 請輸入專屬密碼</h3>", unsafe_allow_html=True)
+    
+    # 密碼輸入框 (輸入時會變成黑點)
+    pwd_input = st.text_input("Password", type="password", key="pwd_input")
+    
+    if pwd_input:
+        # 核對保險箱裡的密碼
+        if pwd_input == st.secrets["app_password"]:
+            st.session_state["password_correct"] = True
+            st.rerun() # 密碼正確，重新整理畫面放行
+        else:
+            st.error("❌ 密碼錯誤！這不是你的看盤軟體！")
+    return False
+
+# 如果密碼不對，程式就強制停止在這裡，下面的畫面通通不准跑！
+if not check_password():
+    st.stop()
+# ==========================================
+
+# --- 雲端與本機路徑設定 ---
+DATA_FILE = "stock_data.json" 
+# ... (下面維持你原本的所有程式碼) ...
+
 # --- 雲端與本機路徑設定 ---
 DATA_FILE = "stock_data.json" # 舊的本機存檔
 GCP_KEY_FILE = "gcp_key.json" # Google 金鑰檔
