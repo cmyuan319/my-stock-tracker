@@ -347,4 +347,4 @@ with tab3:
         st.info("目前還沒有歷史資料，系統會從今天開始自動幫你記錄！")
 
 st.write("") 
-st.markdown("<h2 style='text-align: center; color: #003366; font-style: italic; font-weight: bold;'>長期投資</h2>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #003366; font-style: italic; font-weight: bold; font-size: 36px;'>躺在指數的道路上耍廢 🛋️</h1>", unsafe_allow_html=True)
