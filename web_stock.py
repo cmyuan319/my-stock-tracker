@@ -108,19 +108,36 @@ if "db" not in st.session_state:
 db = st.session_state.db
 
 # --- 核心計算與爬蟲 ---
+# --- 核心計算與爬蟲 ---
 @st.cache_data(ttl=60)
 def fetch_price(ticker):
+    price = 0.0
+    name = ticker
+    
+    # 1. 引擎 A：從 Google 財經抓取「即時股價」 (報價穩定且快速)
     try:
-        url = f"https://www.google.com/finance/quote/{ticker}:TPE?hl=zh-TW"
-        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        p_div = soup.find('div', class_='YMlKec fxKbKc')
-        n_div = soup.find('div', class_='zzDege')
-        price = float(p_div.text.replace('$', '').replace(',', '')) if p_div else 0.0
-        name = n_div.text if n_div else ticker
-        return price, name
+        url_g = f"https://www.google.com/finance/quote/{ticker}:TPE?hl=zh-TW"
+        resp_g = requests.get(url_g, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        soup_g = BeautifulSoup(resp_g.text, 'html.parser')
+        p_div = soup_g.find('div', class_='YMlKec fxKbKc')
+        if p_div: 
+            price = float(p_div.text.replace('$', '').replace(',', ''))
     except:
-        return 0.0, ticker
+        pass
+        
+    # 2. 引擎 B：從 Yahoo 奇摩股市抓取「股票名稱」 (中文名稱最精準)
+    try:
+        url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
+        resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        soup_y = BeautifulSoup(resp_y.text, 'html.parser')
+        # Yahoo 股市的名稱通常固定放在 <h1> 標籤裡
+        h1_tag = soup_y.find('h1')
+        if h1_tag:
+            name = h1_tag.text
+    except:
+        pass
+        
+    return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
     disc = db["fee_discount"] / 10.0
