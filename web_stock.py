@@ -314,51 +314,55 @@ tab1, tab2 = st.tabs(["📉 未實現損益", "💰 已實現損益"])
 
 with tab1:
     if display_data:
-        hc1, hc2, hc3, hc4, hc5, hc6, hc7, hc8, hc9 = st.columns([1, 1.5, 1, 1, 1, 1.2, 1.2, 1, 1.5])
-        hc1.markdown("**代號**")
-        hc2.markdown("**名稱**")
-        hc3.markdown("**總股數**")
-        hc4.markdown("**均價**")
-        hc5.markdown("**現價**")
-        hc6.markdown("**市值**")
-        hc7.markdown("**未實現**")
-        hc8.markdown("**報酬率**")
-        hc9.markdown("**操作 (明細/賣出)**")
-        st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
-        
+        st.write("點擊各股票展開詳細數據與操作：")
         for item in display_data:
-            c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1, 1.5, 1, 1, 1, 1.2, 1.2, 1, 1.5])
-            color = item['color']
-            c1.write(item["ticker"])
-            c2.write(item["name"])
-            c3.write(f"{item['shares']:,}")
-            c4.write(f"{item['avg_cost']:.2f}")
-            c5.write(f"{item['curr_p']:.2f}")
-            c6.write(f"{round(item['mv']):,}")
-            c7.markdown(f"<span style='color:{color}; font-weight:bold;'>{item['un_profit']:,}</span>", unsafe_allow_html=True)
-            c8.markdown(f"<span style='color:{color}; font-weight:bold;'>{item['ret_rate']:.2f}%</span>", unsafe_allow_html=True)
+            # 依照賺賠決定圖示
+            icon = "🔴" if item['un_profit'] > 0 else "🟢" if item['un_profit'] < 0 else "⚫"
             
-            btn_col1, btn_col2 = c9.columns(2)
-            if btn_col1.button("🔍", key=f"detail_{item['ticker']}", help="查看買進明細"):
-                show_details_dialog(item['ticker'], item['name'])
-            if btn_col2.button("🛒", key=f"sell_{item['ticker']}", help="賣出股票"):
-                show_sell_dialog(item['ticker'], item['name'])
-            st.markdown("<hr style='margin-top: 0px; margin-bottom: 5px; border-top: 1px dashed #bbb;'>", unsafe_allow_html=True)
+            # 建立折疊卡片 (Expander)，把最關鍵的資訊放在標題
+            card_title = f"{icon} {item['ticker']} {item['name']} ｜ 報酬率: {item['ret_rate']:.2f}%"
+            
+            with st.expander(card_title):
+                # 卡片內部使用 metric (指標) 排版，在手機上會自動美觀地排列
+                c1, c2, c3 = st.columns(3)
+                c1.metric("總股數", f"{item['shares']:,}")
+                c2.metric("均價", f"${item['avg_cost']:.2f}")
+                c3.metric("現價", f"${item['curr_p']:.2f}")
+                
+                c4, c5, c6 = st.columns(3)
+                c4.metric("目前市值", f"${round(item['mv']):,}")
+                c5.metric("未實現損益", f"${item['un_profit']:,}")
+                c6.metric("報酬率", f"{item['ret_rate']:.2f}%")
+                
+                st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+                
+                # 將兩個操作按鈕橫向並排，並填滿寬度 (非常適合手機手指點擊)
+                btn1, btn2 = st.columns(2)
+                if btn1.button("🔍 買進明細", key=f"detail_{item['ticker']}", use_container_width=True):
+                    show_details_dialog(item['ticker'], item['name'])
+                if btn2.button("🛒 賣出股票", key=f"sell_{item['ticker']}", use_container_width=True):
+                    show_sell_dialog(item['ticker'], item['name'])
     else:
-        st.info("目前沒有未實現的庫存喔！快去左側新增吧。")
+        st.info("目前沒有未實現的庫存喔！快去側邊欄新增吧。")
 
 with tab2:
     if db["realized_records"]:
-        real_list = []
+        st.write("點擊各筆紀錄展開詳細賣出數據：")
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
             p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
             _, name = fetch_price(r["ticker"])
-            real_list.append({
-                "賣出日期": r["sell_date"], "股票代號": r["ticker"], "股票名稱": name,
-                "交易股數": f"{r['shares']:,}", "買進價格": f"{r['buy_price']:.2f}",
-                "賣出價格": f"{r['sell_price']:.2f}", "已實現損益": f"{p:,}"
-            })
-        st.dataframe(pd.DataFrame(real_list), use_container_width=True, hide_index=True)
+            
+            # 判斷賺賠圖示
+            icon = "🔴" if p > 0 else "🟢" if p < 0 else "⚫"
+            
+            # 卡片標題：日期 ｜ 代號名稱 ｜ 賺賠金額
+            card_title = f"{icon} {r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
+            
+            with st.expander(card_title):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("交易股數", f"{r['shares']:,}")
+                c2.metric("買進價格", f"${r['buy_price']:.2f}")
+                c3.metric("賣出價格", f"${r['sell_price']:.2f}")
     else:
         st.info("目前還沒有賣出紀錄。")
 
