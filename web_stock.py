@@ -130,10 +130,15 @@ def fetch_price(ticker):
         url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
         resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup_y = BeautifulSoup(resp_y.text, 'html.parser')
-        # Yahoo 股市的名稱通常固定放在 <h1> 標籤裡
-        h1_tag = soup_y.find('h1')
-        if h1_tag:
-            name = h1_tag.text
+        
+        # 改抓網頁的 <title> 標籤 (例如："元大台灣50(0050) - 股價走勢 - Yahoo奇摩股市")
+        title_tag = soup_y.find('title')
+        if title_tag:
+            # 用 split('(') 從左括號切開，並用 strip() 去除多餘空白，只保留最前面的中文
+            extracted_name = title_tag.text.split('(')[0].strip()
+            # 避免抓到 Yahoo 錯誤頁面的預設標題
+            if "Yahoo" not in extracted_name:
+                name = extracted_name
     except:
         pass
         
