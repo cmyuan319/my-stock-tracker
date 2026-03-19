@@ -15,7 +15,7 @@ st.set_page_config(page_title="長期投資", layout="wide", page_icon="📈")
 # --- 雲端與本機路徑設定 ---
 DATA_FILE = "stock_data.json" 
 GCP_KEY_FILE = "gcp_key.json" 
-SHEET_ID = "YOUR_GOOGLE_SHEET_ID" # ⚠️ 請在這裡貼回你的 Google 試算表 ID ⚠️
+SHEET_ID = "1iaKyWl8WwQv9Anpgb28drGEX0CrxmwIDF6BsOqI9UxM" # ⚠️ 請在這裡貼回你的 Google 試算表 ID ⚠️
 
 # ==========================================
 # 🛑 密碼保護防護網 🛑
