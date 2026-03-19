@@ -18,23 +18,25 @@ GCP_KEY_FILE = "gcp_key.json"
 SHEET_ID = "1iaKyWl8WwQv9Anpgb28drGEX0CrxmwIDF6BsOqI9UxM" # ⚠️ 請在這裡貼回你的 Google 試算表 ID ⚠️
 
 # ==========================================
-# 🛑 密碼保護防護網 🛑
+# 🛑 智慧局部解鎖防護網 🛑
 # ==========================================
-def check_password():
-    if st.session_state.get("password_correct", False):
+def unlock_ui(key_name):
+    # 如果這個連線階段已經解鎖過，就直接放行
+    if st.session_state.get("unlocked", False):
         return True
-    st.markdown("<h3 style='text-align: center; color: #003366;'>🔒 請輸入專屬密碼</h3>", unsafe_allow_html=True)
-    pwd_input = st.text_input("Password", type="password", key="pwd_input")
-    if pwd_input:
-        if pwd_input == st.secrets["app_password"]:
-            st.session_state["password_correct"] = True
-            st.rerun()
+        
+    # 如果還沒解鎖，顯示密碼輸入框
+    st.info("此區塊需要管理員權限才能操作。")
+    pwd = st.text_input("🔒 請輸入密碼解鎖", type="password", key=key_name)
+    if pwd:
+        if pwd == st.secrets["app_password"]:
+            st.session_state["unlocked"] = True
+            st.success("解鎖成功！")
+            time.sleep(0.5)
+            st.rerun() # 重新整理畫面，顯示隱藏的按鈕
         else:
-            st.error("❌ 密碼錯誤！這不是你的看盤軟體！")
+            st.error("❌ 密碼錯誤！")
     return False
-
-if not check_password():
-    st.stop()
 # ==========================================
 
 # --- Google Sheets 連線與資料搬家邏輯 ---
@@ -130,6 +132,8 @@ def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
 # --- 彈出視窗 (Dialogs) ---
 @st.dialog("⚙️ 全域設定")
 def show_settings_dialog():
+    if not unlock_ui("lock_settings"): return # 鎖頭攔截
+    
     st.write("目前資金設定請至「資金與風險控管」分頁修改。")
     new_disc = st.number_input("手續費折數", value=float(db.get("fee_discount", 6.0)), step=0.1)
     if st.button("儲存手續費設定", type="primary", use_container_width=True):
@@ -141,6 +145,8 @@ def show_settings_dialog():
 
 @st.dialog("➕ 新增股票")
 def show_add_stock_dialog():
+    if not unlock_ui("lock_add"): return # 鎖頭攔截
+    
     in_date = st.date_input("買進日期")
     in_ticker = st.text_input("股票代號").upper()
     in_shares = st.number_input("買進股數", min_value=1, step=1000)
@@ -164,24 +170,34 @@ def show_details_dialog(ticker, name):
     if not records:
         st.warning("目前無庫存紀錄。")
         return
+        
     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
     c1.write("**日期**")
     c2.write("**股數**")
     c3.write("**單價**")
     c4.write("**刪除**")
     st.divider()
+    
+    # 判斷是否解鎖，若未解鎖則隱藏刪除按鈕
+    is_admin = st.session_state.get("unlocked", False)
+    if not is_admin:
+        st.info("💡 若要刪除紀錄，請先點擊上方新增/設定圖示解鎖權限。")
+        
     for r in records:
         c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
         c1.write(r["date"])
         c2.write(f"{r['shares']:,}")
         c3.write(f"${r['price']:.2f}")
-        if c4.button("🗑️", key=f"del_{r['id']}"):
+        # 只有解鎖狀態下才顯示垃圾桶按鈕
+        if is_admin and c4.button("🗑️", key=f"del_{r['id']}"):
             db["buy_records"] = [rec for rec in db["buy_records"] if rec["id"] != r["id"]]
             save_data(db)
             st.rerun()
 
 @st.dialog("🛒 賣出股票")
 def show_sell_dialog(ticker, name):
+    if not unlock_ui(f"lock_sell_{ticker}"): return # 鎖頭攔截
+    
     st.markdown(f"### 賣出 {ticker} {name}")
     tot_s = sum(r["shares"] for r in db["buy_records"] if r["ticker"] == ticker)
     st.info(f"目前總庫存: **{tot_s:,}** 股")
@@ -267,7 +283,6 @@ else: lev_str = "0.0x"
 m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 
 # --- 🚀 每日 14:00 (UTC+8) 後總獲利與總資產自動記錄邏輯 ---
-# 取得台灣時間
 tz_tw = timezone(timedelta(hours=8))
 now_tw = datetime.now(tz_tw)
 today_str = now_tw.strftime('%Y-%m-%d')
@@ -276,7 +291,6 @@ for k, v in db["history"].items():
     if isinstance(v, (int, float)): 
         db["history"][k] = {"profit": v, "assets": total_assets}
 
-# 只有在台灣時間 14:00 之後，才會寫入/更新今天的收盤紀錄
 if now_tw.hour >= 14:
     current_history = db["history"].get(today_str, {})
     if current_history.get("profit") != tot_profit or current_history.get("assets") != total_assets:
@@ -285,14 +299,12 @@ if now_tw.hour >= 14:
 # ---------------------------------
 
 # --- 主畫面：極簡大看板 ---
-# 加上當下日期
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
 m1.metric("總資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${tot_profit:,.0f}")
 
 st.divider()
-
 
 # --- 五大分頁 ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -357,7 +369,6 @@ with tab4:
 
 with tab5:
     st.markdown("#### 🛡️ 風險與獲利指標")
-    # 移除了總獲利，改為 3 欄
     rc1, rc2, rc3 = st.columns(3)
     rc1.metric("總曝險", f"${tot_exp:,.0f}")
     rc2.metric("槓桿倍數", lev_str)
@@ -366,20 +377,21 @@ with tab5:
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     
     st.markdown("#### 💵 資金編輯區")
-    ec1, ec2, ec3 = st.columns(3)
-    # 改為整數輸入 (拿掉小數點)
-    new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
-    new_pld = ec2.number_input("質押金額", value=int(pld_amt), step=10000)
-    new_crd = ec3.number_input("信貸金額", value=int(crd_loan), step=10000)
-    
-    if st.button("💾 更新資金數據", type="primary"):
-        db["account_balance"] = float(new_bal)
-        db["pledge_amount"] = float(new_pld)
-        db["credit_loan"] = float(new_crd)
-        save_data(db)
-        st.success("資金數據已更新！")
-        time.sleep(1)
-        st.rerun()
+    # 在資金編輯區加上鎖頭
+    if unlock_ui("lock_funding"):
+        ec1, ec2, ec3 = st.columns(3)
+        new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
+        new_pld = ec2.number_input("質押金額", value=int(pld_amt), step=10000)
+        new_crd = ec3.number_input("信貸金額", value=int(crd_loan), step=10000)
+        
+        if st.button("💾 更新資金數據", type="primary"):
+            db["account_balance"] = float(new_bal)
+            db["pledge_amount"] = float(new_pld)
+            db["credit_loan"] = float(new_crd)
+            save_data(db)
+            st.success("資金數據已更新！")
+            time.sleep(1)
+            st.rerun()
 
 # 底部標語
 st.write("") 
