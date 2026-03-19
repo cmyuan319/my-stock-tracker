@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import time
@@ -60,7 +60,6 @@ def load_data():
         val = sheet.acell('A1').value
         if val:
             data = json.loads(val)
-            # 確保新欄位存在
             for k in ["account_balance", "credit_loan", "pledge_amount"]:
                 if k not in data: data[k] = 0.0
             if "history" not in data: data["history"] = {}
@@ -208,7 +207,7 @@ def show_sell_dialog(ticker, name):
         time.sleep(1)
         st.rerun()
 
-# --- 頂部操作列 (取代側邊欄) ---
+# --- 頂部操作列 ---
 col_space, col_add, col_set = st.columns([8, 1, 1])
 with col_add:
     if st.button("➕ 新增", use_container_width=True): show_add_stock_dialog()
@@ -259,7 +258,6 @@ acc_bal = float(db.get("account_balance", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總資產 = 帳戶餘額 + 股票現值 - 質押 - 信貸
 total_assets = acc_bal + tot_mv - pld_amt - crd_loan
 
 if total_assets > 0: lev_str = f"{tot_exp / total_assets:.2f}x"
@@ -268,21 +266,27 @@ else: lev_str = "0.0x"
 
 m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 
-# --- 🚀 每日總獲利與總資產自動記錄邏輯 (含舊資料無痛升級) ---
-today_str = datetime.today().strftime('%Y-%m-%d')
+# --- 🚀 每日 14:00 (UTC+8) 後總獲利與總資產自動記錄邏輯 ---
+# 取得台灣時間
+tz_tw = timezone(timedelta(hours=8))
+now_tw = datetime.now(tz_tw)
+today_str = now_tw.strftime('%Y-%m-%d')
 
-# 確保 history 內的資料格式都是字典 {"profit": x, "assets": y}
 for k, v in db["history"].items():
     if isinstance(v, (int, float)): 
-        db["history"][k] = {"profit": v, "assets": total_assets} # 舊資料升級
+        db["history"][k] = {"profit": v, "assets": total_assets}
 
-current_history = db["history"].get(today_str, {})
-if current_history.get("profit") != tot_profit or current_history.get("assets") != total_assets:
-    db["history"][today_str] = {"profit": tot_profit, "assets": total_assets}
-    save_data(db)
+# 只有在台灣時間 14:00 之後，才會寫入/更新今天的收盤紀錄
+if now_tw.hour >= 14:
+    current_history = db["history"].get(today_str, {})
+    if current_history.get("profit") != tot_profit or current_history.get("assets") != total_assets:
+        db["history"][today_str] = {"profit": tot_profit, "assets": total_assets}
+        save_data(db)
 # ---------------------------------
 
 # --- 主畫面：極簡大看板 ---
+# 加上當下日期
+st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
 m1.metric("總資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${tot_profit:,.0f}")
@@ -338,7 +342,7 @@ with tab3:
         df_profit["日期"] = pd.to_datetime(df_profit["日期"])
         st.line_chart(df_profit.set_index("日期"))
     else:
-        st.info("系統會從今天開始自動幫你記錄！")
+        st.info("系統會從今天 14:00 開始自動幫你記錄！")
 
 with tab4:
     st.markdown("### 📊 每日總資產走勢")
@@ -348,28 +352,29 @@ with tab4:
         df_assets["日期"] = pd.to_datetime(df_assets["日期"])
         st.line_chart(df_assets.set_index("日期"))
     else:
-        st.info("系統會從今天開始自動幫你記錄！")
+        st.info("系統會從今天 14:00 開始自動幫你記錄！")
 
 with tab5:
     st.markdown("#### 🛡️ 風險與獲利指標")
-    rc1, rc2, rc3, rc4 = st.columns(4)
+    # 移除了總獲利，改為 3 欄
+    rc1, rc2, rc3 = st.columns(3)
     rc1.metric("總曝險", f"${tot_exp:,.0f}")
     rc2.metric("槓桿倍數", lev_str)
     rc3.metric("質押維持率", f"{m_ratio:.1f}%")
-    rc4.metric("總獲利 (未實現+已實現)", f"${tot_profit:,.0f}")
     
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     
     st.markdown("#### 💵 資金編輯區")
     ec1, ec2, ec3 = st.columns(3)
-    new_bal = ec1.number_input("帳戶餘額", value=acc_bal, step=10000.0)
-    new_pld = ec2.number_input("質押金額", value=pld_amt, step=10000.0)
-    new_crd = ec3.number_input("信貸金額", value=crd_loan, step=10000.0)
+    # 改為整數輸入 (拿掉小數點)
+    new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
+    new_pld = ec2.number_input("質押金額", value=int(pld_amt), step=10000)
+    new_crd = ec3.number_input("信貸金額", value=int(crd_loan), step=10000)
     
     if st.button("💾 更新資金數據", type="primary"):
-        db["account_balance"] = new_bal
-        db["pledge_amount"] = new_pld
-        db["credit_loan"] = new_crd
+        db["account_balance"] = float(new_bal)
+        db["pledge_amount"] = float(new_pld)
+        db["credit_loan"] = float(new_crd)
         save_data(db)
         st.success("資金數據已更新！")
         time.sleep(1)
