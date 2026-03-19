@@ -293,6 +293,14 @@ m2.metric("總獲利", f"${tot_profit:,.0f}")
 
 st.divider()
 
+if st.button("🧹 清除 3/18 錯誤紀錄"):
+        if "2026-03-18" in db["history"]:
+            del db["history"]["2026-03-18"]
+            save_data(db)
+            st.success("清除成功！圖表已恢復乾淨。")
+            time.sleep(1)
+            st.rerun()
+
 # --- 五大分頁 ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📉 未實現", "💰 已實現", "📈 獲利走勢", "📊 資產走勢", "⚖️ 資金與風險控管"
