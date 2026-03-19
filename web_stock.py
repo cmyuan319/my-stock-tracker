@@ -9,13 +9,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import time
 
-# --- 頁面基本設定 (名稱已改為 長期投資) ---
+# --- 頁面基本設定 ---
 st.set_page_config(page_title="長期投資", layout="wide", page_icon="📈")
 
 # --- 雲端與本機路徑設定 ---
 DATA_FILE = "stock_data.json" 
 GCP_KEY_FILE = "gcp_key.json" 
-SHEET_ID = "1iaKyWl8WwQv9Anpgb28drGEX0CrxmwIDF6BsOqI9UxM" # ⚠️ 請記得在這裡貼回你的 Google 試算表 ID ⚠️
+SHEET_ID = "YOUR_GOOGLE_SHEET_ID" # ⚠️ 請在這裡貼回你的 Google 試算表 ID ⚠️
 
 # ==========================================
 # 🛑 密碼保護防護網 🛑
@@ -50,12 +50,21 @@ def init_gspread():
     return client
 
 def load_data():
+    default_db = {
+        "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
+        "credit_loan": 0.0, "buy_records": [], "realized_records": [], "history": {}
+    }
     try:
         client = init_gspread()
         sheet = client.open_by_key(SHEET_ID).sheet1
         val = sheet.acell('A1').value
         if val:
-            return json.loads(val)
+            data = json.loads(val)
+            # 確保新欄位存在
+            for k in ["account_balance", "credit_loan", "pledge_amount"]:
+                if k not in data: data[k] = 0.0
+            if "history" not in data: data["history"] = {}
+            return data
         elif os.path.exists(DATA_FILE):
             st.toast("🚀 偵測到本機紀錄，正在為您自動上傳至 Google 雲端...", icon="☁️")
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -64,9 +73,7 @@ def load_data():
             return local_data
     except Exception as e:
         st.error(f"連線 Google 試算表失敗: {e}")
-        
-    # 新增 history 字典用來存放每日獲利
-    return {"fee_discount": 6.0, "pledge_amount": 500000.0, "buy_records": [], "realized_records": [], "history": {}}
+    return default_db
 
 def save_data(data):
     try:
@@ -76,15 +83,10 @@ def save_data(data):
     except Exception as e:
         st.error(f"儲存至雲端失敗: {e}")
 
-# 初始化資料
 if "db" not in st.session_state:
     st.session_state.db = load_data()
 
 db = st.session_state.db
-
-# 為了相容舊資料，確保 history 欄位存在
-if "history" not in db:
-    db["history"] = {}
 
 # --- 核心計算與雙引擎爬蟲 ---
 @st.cache_data(ttl=60)
@@ -98,8 +100,7 @@ def fetch_price(ticker):
         p_div = soup_g.find('div', class_='YMlKec fxKbKc')
         if p_div: 
             price = float(p_div.text.replace('$', '').replace(',', ''))
-    except:
-        pass
+    except: pass
         
     try:
         url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
@@ -110,8 +111,7 @@ def fetch_price(ticker):
             extracted_name = title_tag.text.split('(')[0].strip()
             if "Yahoo" not in extracted_name:
                 name = extracted_name
-    except:
-        pass
+    except: pass
     return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
@@ -129,16 +129,44 @@ def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
     return total_cost
 
 # --- 彈出視窗 (Dialogs) ---
+@st.dialog("⚙️ 全域設定")
+def show_settings_dialog():
+    st.write("目前資金設定請至「資金與風險控管」分頁修改。")
+    new_disc = st.number_input("手續費折數", value=float(db.get("fee_discount", 6.0)), step=0.1)
+    if st.button("儲存手續費設定", type="primary", use_container_width=True):
+        db["fee_discount"] = new_disc
+        save_data(db)
+        st.success("設定已更新！")
+        time.sleep(1)
+        st.rerun()
+
+@st.dialog("➕ 新增股票")
+def show_add_stock_dialog():
+    in_date = st.date_input("買進日期")
+    in_ticker = st.text_input("股票代號").upper()
+    in_shares = st.number_input("買進股數", min_value=1, step=1000)
+    in_price = st.number_input("買進單價", min_value=0.01, step=1.0)
+    if st.button("確認新增", type="primary", use_container_width=True):
+        if in_ticker:
+            next_id = max([r.get("id", 0) for r in db["buy_records"]] + [0]) + 1
+            db["buy_records"].append({
+                "id": next_id, "date": str(in_date), "ticker": in_ticker, 
+                "shares": in_shares, "price": in_price
+            })
+            save_data(db)
+            st.success(f"已新增 {in_ticker}！")
+            time.sleep(1)
+            st.rerun()
+
 @st.dialog("🔍 逐筆買進明細與管理")
 def show_details_dialog(ticker, name):
     st.markdown(f"### {ticker} {name}")
-    st.write("點擊垃圾桶刪除紀錄。")
     records = sorted([r for r in db["buy_records"] if r["ticker"] == ticker], key=lambda x: x["date"], reverse=True)
     if not records:
         st.warning("目前無庫存紀錄。")
         return
     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-    c1.write("**買進日期**")
+    c1.write("**日期**")
     c2.write("**股數**")
     c3.write("**單價**")
     c4.write("**刪除**")
@@ -180,38 +208,14 @@ def show_sell_dialog(ticker, name):
         time.sleep(1)
         st.rerun()
 
-# --- 側邊欄 ---
-with st.sidebar:
-    st.header("⚙️ 設定與操作區")
-    with st.expander("全域設定", expanded=False):
-        new_disc = st.number_input("手續費折數", value=float(db["fee_discount"]), step=0.1)
-        new_pledge = st.number_input("質押金額", value=float(db["pledge_amount"]), step=10000.0)
-        if st.button("更新設定", use_container_width=True):
-            db["fee_discount"] = new_disc
-            db["pledge_amount"] = new_pledge
-            save_data(db)
-            st.success("設定已更新！")
-            st.rerun()
+# --- 頂部操作列 (取代側邊欄) ---
+col_space, col_add, col_set = st.columns([8, 1, 1])
+with col_add:
+    if st.button("➕ 新增", use_container_width=True): show_add_stock_dialog()
+with col_set:
+    if st.button("⚙️ 設定", use_container_width=True): show_settings_dialog()
 
-    with st.expander("➕ 新增股票", expanded=False):
-        in_date = st.date_input("買進日期")
-        in_ticker = st.text_input("股票代號").upper()
-        in_shares = st.number_input("買進股數", min_value=1, step=1000)
-        in_price = st.number_input("買進單價", min_value=0.01, step=1.0)
-        if st.button("確認新增", type="primary", use_container_width=True):
-            if in_ticker:
-                next_id = max([r.get("id", 0) for r in db["buy_records"]] + [0]) + 1
-                db["buy_records"].append({
-                    "id": next_id, "date": str(in_date), "ticker": in_ticker, 
-                    "shares": in_shares, "price": in_price
-                })
-                save_data(db)
-                st.success(f"已新增 {in_ticker}！")
-                st.rerun()
-
-# --- 主畫面區塊 ---
-st.markdown("### 📊 資產總覽看板")
-
+# --- 核心數據計算 ---
 agg = {}
 for r in db["buy_records"]:
     t = r["ticker"]
@@ -220,7 +224,6 @@ for r in db["buy_records"]:
     agg[t]["cost_basis"] += r["shares"] * r["price"]
 
 tot_exp, tot_mv, tot_unrealized = 0, 0, 0
-v0050, vLev = 0, 0
 display_data = []
 
 for t, d in agg.items():
@@ -232,12 +235,8 @@ for t, d in agg.items():
     mv = shares * curr_p
     tot_mv += mv
     
-    if t.endswith("L"):
-        tot_exp += (mv * 2)
-        vLev += mv
-    else:
-        tot_exp += mv
-        if t == "0050": v0050 += mv
+    if t.endswith("L"): tot_exp += (mv * 2)
+    else: tot_exp += mv
         
     cost = calc_cost_profit(t, shares, avg_cost)
     tax_rate = 0.001 if t.startswith("00") else 0.003
@@ -253,47 +252,51 @@ for t, d in agg.items():
     })
 
 tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db["realized_records"])
-
-net_asset = tot_mv - db["pledge_amount"]
-if net_asset > 0: lev_str = f"{tot_exp / net_asset:.2f}x"
-elif net_asset <= 0 and tot_exp > 0: lev_str = "∞"
-else: lev_str = "0.0x"
-
-m_ratio = (tot_mv / db["pledge_amount"] * 100) if db["pledge_amount"] > 0 else 0
 tot_profit = tot_unrealized + tot_realized
 
-# --- 🚀 每日總獲利自動記錄邏輯 ---
+# 資金數據與公式
+acc_bal = float(db.get("account_balance", 0.0))
+pld_amt = float(db.get("pledge_amount", 0.0))
+crd_loan = float(db.get("credit_loan", 0.0))
+
+# 總資產 = 帳戶餘額 + 股票現值 - 質押 - 信貸
+total_assets = acc_bal + tot_mv - pld_amt - crd_loan
+
+if total_assets > 0: lev_str = f"{tot_exp / total_assets:.2f}x"
+elif total_assets <= 0 and tot_exp > 0: lev_str = "∞"
+else: lev_str = "0.0x"
+
+m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
+
+# --- 🚀 每日總獲利與總資產自動記錄邏輯 (含舊資料無痛升級) ---
 today_str = datetime.today().strftime('%Y-%m-%d')
-# 只在獲利有變動，或者是今天還沒記錄時，才上傳寫入雲端 (節省資源)
-if db["history"].get(today_str) != tot_profit:
-    db["history"][today_str] = tot_profit
+
+# 確保 history 內的資料格式都是字典 {"profit": x, "assets": y}
+for k, v in db["history"].items():
+    if isinstance(v, (int, float)): 
+        db["history"][k] = {"profit": v, "assets": total_assets} # 舊資料升級
+
+current_history = db["history"].get(today_str, {})
+if current_history.get("profit") != tot_profit or current_history.get("assets") != total_assets:
+    db["history"][today_str] = {"profit": tot_profit, "assets": total_assets}
     save_data(db)
 # ---------------------------------
 
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("0050 現值", f"${v0050:,.0f}")
-col2.metric("正2 現值", f"${vLev:,.0f}")
-col3.metric("總曝險", f"${tot_exp:,.0f}")
-col4.metric("質押金額", f"${db['pledge_amount']:,.0f}")
-col5.metric("淨資產", f"${net_asset:,.0f}")
-
-col6, col7, col8, col9, col10 = st.columns(5)
-col6.metric("槓桿倍數", lev_str)
-col7.metric("質押維持率", f"{m_ratio:.1f}%")
-col8.metric("未實現獲利", f"${tot_unrealized:,.0f}")
-col9.metric("已實現獲利", f"${tot_realized:,.0f}")
-col10.metric("總獲利", f"${tot_profit:,.0f}")
+# --- 主畫面：極簡大看板 ---
+m1, m2 = st.columns(2)
+m1.metric("總資產", f"${total_assets:,.0f}")
+m2.metric("總獲利", f"${tot_profit:,.0f}")
 
 st.divider()
 
-# 新增了第三個分頁：獲利走勢
-tab1, tab2, tab3 = st.tabs(["📉 未實現損益", "💰 已實現損益", "📈 獲利走勢"])
+# --- 五大分頁 ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📉 未實現", "💰 已實現", "📈 獲利走勢", "📊 資產走勢", "⚖️ 資金與風險控管"
+])
 
 with tab1:
     if display_data:
-        st.write("點擊各股票展開詳細數據與操作：")
         for item in display_data:
-            # 移除了燈號
             card_title = f"{item['ticker']} {item['name']} ｜ 報酬率: {item['ret_rate']:.2f}%"
             with st.expander(card_title):
                 c1, c2, c3 = st.columns(3)
@@ -308,23 +311,17 @@ with tab1:
                 
                 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
                 btn1, btn2 = st.columns(2)
-                if btn1.button("🔍 買進明細", key=f"detail_{item['ticker']}", use_container_width=True):
-                    show_details_dialog(item['ticker'], item['name'])
-                if btn2.button("🛒 賣出股票", key=f"sell_{item['ticker']}", use_container_width=True):
-                    show_sell_dialog(item['ticker'], item['name'])
+                if btn1.button("🔍 明細", key=f"d_{item['ticker']}", use_container_width=True): show_details_dialog(item['ticker'], item['name'])
+                if btn2.button("🛒 賣出", key=f"s_{item['ticker']}", use_container_width=True): show_sell_dialog(item['ticker'], item['name'])
     else:
-        st.info("目前沒有未實現的庫存喔！快去側邊欄新增吧。")
+        st.info("目前沒有未實現的庫存喔！快點擊右上角新增吧。")
 
 with tab2:
     if db["realized_records"]:
-        st.write("點擊各筆紀錄展開詳細賣出數據：")
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
             p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
             _, name = fetch_price(r["ticker"])
-            
-            # 移除了燈號
             card_title = f"{r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
-            
             with st.expander(card_title):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("交易股數", f"{r['shares']:,}")
@@ -334,17 +331,50 @@ with tab2:
         st.info("目前還沒有賣出紀錄。")
 
 with tab3:
-    st.markdown("### 📅 每日總獲利走勢")
+    st.markdown("### 📈 每日總獲利走勢")
     if db["history"]:
-        # 將字典轉換成圖表所需的 DataFrame 格式
-        df_hist = pd.DataFrame(list(db["history"].items()), columns=["日期", "總獲利"])
-        df_hist["日期"] = pd.to_datetime(df_hist["日期"])
-        df_hist = df_hist.set_index("日期")
-        
-        # 繪製曲線圖
-        st.line_chart(df_hist)
+        hist_data = [{"日期": k, "總獲利": v["profit"]} for k, v in db["history"].items()]
+        df_profit = pd.DataFrame(hist_data)
+        df_profit["日期"] = pd.to_datetime(df_profit["日期"])
+        st.line_chart(df_profit.set_index("日期"))
     else:
-        st.info("目前還沒有歷史資料，系統會從今天開始自動幫你記錄！")
+        st.info("系統會從今天開始自動幫你記錄！")
 
+with tab4:
+    st.markdown("### 📊 每日總資產走勢")
+    if db["history"]:
+        hist_data = [{"日期": k, "總資產": v["assets"]} for k, v in db["history"].items()]
+        df_assets = pd.DataFrame(hist_data)
+        df_assets["日期"] = pd.to_datetime(df_assets["日期"])
+        st.line_chart(df_assets.set_index("日期"))
+    else:
+        st.info("系統會從今天開始自動幫你記錄！")
+
+with tab5:
+    st.markdown("#### 🛡️ 風險與獲利指標")
+    rc1, rc2, rc3, rc4 = st.columns(4)
+    rc1.metric("總曝險", f"${tot_exp:,.0f}")
+    rc2.metric("槓桿倍數", lev_str)
+    rc3.metric("質押維持率", f"{m_ratio:.1f}%")
+    rc4.metric("總獲利 (未實現+已實現)", f"${tot_profit:,.0f}")
+    
+    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+    
+    st.markdown("#### 💵 資金編輯區")
+    ec1, ec2, ec3 = st.columns(3)
+    new_bal = ec1.number_input("帳戶餘額", value=acc_bal, step=10000.0)
+    new_pld = ec2.number_input("質押金額", value=pld_amt, step=10000.0)
+    new_crd = ec3.number_input("信貸金額", value=crd_loan, step=10000.0)
+    
+    if st.button("💾 更新資金數據", type="primary"):
+        db["account_balance"] = new_bal
+        db["pledge_amount"] = new_pld
+        db["credit_loan"] = new_crd
+        save_data(db)
+        st.success("資金數據已更新！")
+        time.sleep(1)
+        st.rerun()
+
+# 底部標語
 st.write("") 
 st.markdown("<h1 style='text-align: center; color: #003366; font-style: italic; font-weight: bold; font-size: 36px;'>躺在指數的道路上耍廢 🛋️</h1>", unsafe_allow_html=True)
