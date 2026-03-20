@@ -17,6 +17,12 @@ st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon=
 # ==========================================
 cookie_manager = stx.CookieManager(key="my_cookies")
 
+# 🚀 緩衝機制：給瀏覽器 0.5 秒的時間把 Cookie 傳給後端
+if "cookie_ready" not in st.session_state:
+    st.session_state["cookie_ready"] = True
+    time.sleep(0.5)
+    st.rerun()
+
 # ==========================================
 # 🚀 雲端資料庫 Supabase 初始化
 # ==========================================
@@ -32,7 +38,6 @@ supabase = init_supabase()
 # 🔐 Google 登入防護網 (Cookie 升級版)
 # ==========================================
 def login_ui():
-    # 0. 偷偷去瀏覽器翻找有沒有 30 天內的登入識別證
     saved_email = cookie_manager.get(cookie="user_email")
     
     # 1. 如果 Session 裡有，或是 Cookie 裡有，就直接放行！
@@ -127,15 +132,16 @@ def fetch_price(ticker):
         resp_w = requests.get(url_w, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup_w = BeautifulSoup(resp_w.text, 'html.parser')
         
+        # 抓取股價
         deal_span = soup_w.find('span', class_='deal', attrs={'c-model': 'close'})
         if deal_span and deal_span.text.strip() != "--":
             price = float(deal_span.text.replace(',', ''))
             
-        title_tag = soup_w.find('title')
-        if title_tag:
-            extracted_name = title_tag.text.split('(')[0].strip()
-            if "玩股網" not in extracted_name and extracted_name:
-                name = extracted_name
+        # 🚀 根據你的精準定位，抓取股票名稱
+        name_h3 = soup_w.find('h3', class_='astock-name', attrs={'c-model': 'name'})
+        if name_h3 and name_h3.text.strip():
+            name = name_h3.text.strip()
+            
     except:
         pass
 
@@ -346,7 +352,6 @@ crd_loan = float(db.get("credit_loan", 0.0))
 # 總淨資產 (NAV)
 total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
 
-# 🚀 恢復金融界標準的槓桿倍數公式：總曝險 / 總淨資產
 if total_assets > 0: 
     lev_str = f"{tot_exp / total_assets:.2f}x"
 elif total_assets <= 0 and tot_exp > 0: 
