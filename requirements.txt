@@ -2,5 +2,4 @@ streamlit
 pandas
 requests
 beautifulsoup4
-gspread
-oauth2client
+supabase
