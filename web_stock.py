@@ -8,7 +8,7 @@ from supabase import create_client, Client
 import time
 
 # --- 頁面基本設定 ---
-st.set_page_config(page_title="長期投資", layout="wide", page_icon="📈")
+st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
 
 # ==========================================
 # 🚀 雲端資料庫 Supabase 初始化
@@ -22,35 +22,30 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 Google 登入防護網 (SaaS 核心)
+# 🔐 Google 登入防護網
 # ==========================================
 def login_ui():
-    # 1. 檢查是否已經登入過
     if "user_email" in st.session_state:
         return True
 
-    # 2. 檢查網址列是否有 Google 帶回來的「授權碼 (code)」
     if "code" in st.query_params:
         try:
             code = st.query_params["code"]
-            # 用授權碼去跟 Supabase 換取通行證
             res = supabase.auth.exchange_code_for_session({"auth_code": code})
             st.session_state["user_email"] = res.user.email
-            st.query_params.clear() # 清除網址上的亂碼，保持乾淨
+            st.query_params.clear()
             st.rerun()
             return True
         except Exception as e:
             st.error("登入失敗或授權碼已過期，請重新嘗試。")
             st.query_params.clear()
 
-    # 3. 顯示精美的登入大門
-    st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 長期投資看板</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 個人資產紀錄網</h1>", unsafe_allow_html=True)
     st.write("")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.info("💡 這是一個專屬的私人資產管理系統，請使用 Google 帳號登入，系統會自動載入您個人的專屬資料庫。")
         try:
-            # 產生帶有你專屬網址的 Google 登入按鈕
             res = supabase.auth.sign_in_with_oauth({
                 "provider": "google",
                 "options": {
@@ -62,12 +57,11 @@ def login_ui():
             st.error(f"無法產生登入連結: {e}")
     return False
 
-# 如果沒登入，就擋在大門口不讓程式往下跑
 if not login_ui():
     st.stop()
 
 # ==========================================
-# 🗄️ 專屬資料庫讀寫邏輯 (取代舊的試算表)
+# 🗄️ 專屬資料庫讀寫邏輯
 # ==========================================
 user_email = st.session_state["user_email"]
 
@@ -75,7 +69,6 @@ def load_data():
     try:
         response = supabase.table("user_data").select("*").eq("email", user_email).execute()
         if len(response.data) == 0:
-            # 新朋友登入：發給他一套全新的空白資料庫
             default_db = {
                 "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
                 "credit_loan": 0.0, "buy_records": [], "realized_records": [], "history": {}
@@ -83,7 +76,6 @@ def load_data():
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
         else:
-            # 老朋友登入：讀取他的專屬紀錄
             return response.data[0]["data"]
     except Exception as e:
         st.error(f"資料庫連線異常: {e}")
@@ -219,14 +211,38 @@ def show_sell_dialog(ticker, name):
         time.sleep(1)
         st.rerun()
 
-# --- 頂部操作列 (顯示 Email 與按鈕) ---
-col_user, col_space, col_add, col_set, col_out = st.columns([3, 4, 1, 1, 1])
-with col_user:
-    st.markdown(f"👤 **{user_email}**")
+@st.dialog("📥 匯入舊版資料")
+def show_import_dialog():
+    st.info("請到您原本的 Google 試算表，複製「A1 儲存格」裡密密麻麻的文字，貼在下方並按下匯入即可。")
+    old_data_str = st.text_area("貼上舊資料", height=150)
+    if st.button("確認匯入", type="primary", use_container_width=True):
+        if old_data_str:
+            try:
+                parsed_data = json.loads(old_data_str)
+                # 確保新欄位都在
+                for k in ["account_balance", "credit_loan", "pledge_amount"]:
+                    if k not in parsed_data: parsed_data[k] = 0.0
+                if "history" not in parsed_data: parsed_data["history"] = {}
+                
+                # 覆寫並存檔至 Supabase
+                st.session_state.db = parsed_data
+                save_data(parsed_data)
+                st.success("🎉 舊資料無痛轉移成功！")
+                time.sleep(1)
+                st.rerun()
+            except json.JSONDecodeError:
+                st.error("格式錯誤！請確認您有複製到完整的 A1 儲存格內容（開頭是 { ，結尾是 } ）。")
+            except Exception as e:
+                st.error(f"發生未知的錯誤: {e}")
+
+# --- 頂部操作列 (移除 Email，加入匯入按鈕) ---
+col_space, col_add, col_set, col_in, col_out = st.columns([6, 1, 1, 1, 1])
 with col_add:
     if st.button("➕", help="新增股票", use_container_width=True): show_add_stock_dialog()
 with col_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings_dialog()
+with col_in:
+    if st.button("📥", help="匯入舊資料", use_container_width=True): show_import_dialog()
 with col_out:
     if st.button("🚪", help="登出", use_container_width=True):
         supabase.auth.sign_out()
