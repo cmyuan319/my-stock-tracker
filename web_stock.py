@@ -92,7 +92,7 @@ def save_data(data):
 
 db = load_data()
 
-# --- 🚀 爬蟲與計算引擎 (三棲完整版) ---
+# --- 🚀 爬蟲與精算引擎 (三棲精準版) ---
 def fetch_price(ticker):
     price = 0.0
     name = ticker
@@ -109,12 +109,19 @@ def fetch_price(ticker):
             resp_w = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
             if resp_w.status_code == 200:
                 soup_w = BeautifulSoup(resp_w.text, 'html.parser')
+                
+                # 🚀 解除綁定：獨立優先抓取名稱！(加入你找到的 class_='astock-name')
+                name_h3 = soup_w.find('h3', class_='astock-name', attrs={'c-model': 'name'})
+                if name_h3 and name_h3.text.strip():
+                    name = name_h3.text.strip()
+                    
+                # 抓取價格
                 deal_node = soup_w.find(tag, class_='deal', attrs={'c-model': 'close'})
                 if deal_node and deal_node.text.strip() != "--":
                     price = float(deal_node.text.replace(',', ''))
-                    name_h3 = soup_w.find('h3', attrs={'c-model': 'name'})
-                    if name_h3 and name_h3.text.strip():
-                        name = name_h3.text.strip()
+                    
+                # 如果價格成功抓到了，就跳出迴圈不用再找了
+                if price > 0:
                     break 
         except:
             pass
@@ -132,18 +139,21 @@ def fetch_price(ticker):
                     price = float(p_div.text.replace('$', '').replace(',', ''))
             except: pass
             
-    # 3. 備用引擎：Yahoo 奇摩 (抓取名稱與最後防線報價)
+    # 3. 備用引擎：Yahoo 奇摩 (最後防線)
     if price == 0.0 or name == ticker:
         try:
             url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
             resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
             soup_y = BeautifulSoup(resp_y.text, 'html.parser')
+            
+            # 補抓名稱
             if name == ticker:
                 title_tag = soup_y.find('title')
                 if title_tag:
                     extracted_name = title_tag.text.split('(')[0].strip()
                     if "Yahoo" not in extracted_name: name = extracted_name
             
+            # 補抓價格
             if price == 0.0:
                 match = re.search(r'"regularMarketPrice":([0-9.]+)', resp_y.text)
                 if match: price = float(match.group(1))
