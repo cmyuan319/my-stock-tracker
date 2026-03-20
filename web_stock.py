@@ -100,12 +100,7 @@ def load_data():
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
         else:
-            data = response.data[0]["data"]
-            if "market_data" not in data: data["market_data"] = {}
-            if "futures_capital" not in data: data["futures_capital"] = 0.0
-            if "futures_records" not in data: data["futures_records"] = []
-            if "futures_realized" not in data: data["futures_realized"] = []
-            return data
+            return response.data[0]["data"]
     except Exception as e:
         st.error(f"資料庫連線異常: {e}")
         return {}
@@ -121,13 +116,18 @@ if "db" not in st.session_state:
 
 db = st.session_state.db
 
+# 🚀 終極防呆：確保所有舊用戶的資料庫都有期貨的抽屜，消滅 KeyError！
+if "market_data" not in db: db["market_data"] = {}
+if "futures_capital" not in db: db["futures_capital"] = 0.0
+if "futures_records" not in db: db["futures_records"] = []
+if "futures_realized" not in db: db["futures_realized"] = []
+
 # --- 🚀 核心計算與雙棲爬蟲 ---
 def fetch_price(ticker):
     price = 0.0
     name = ticker
     
     # 1. 玩股網 (自動切換現貨 span 與期貨 div)
-    # 把網址轉小寫以增加相容性
     t_lower = ticker.lower()
     urls_to_try = [
         (f"https://www.wantgoo.com/stock/{t_lower}", 'span'),
@@ -140,16 +140,14 @@ def fetch_price(ticker):
             if resp_w.status_code == 200:
                 soup_w = BeautifulSoup(resp_w.text, 'html.parser')
                 
-                # 根據你提供的期貨 div 或現貨 span 來抓取
                 deal_node = soup_w.find(tag, class_='deal', attrs={'c-model': 'close'})
                 if deal_node and deal_node.text.strip() != "--":
                     price = float(deal_node.text.replace(',', ''))
                     
-                    # 抓取名稱 (把 class 條件拿掉，直接抓 c-model='name' 最穩)
                     name_h3 = soup_w.find('h3', attrs={'c-model': 'name'})
                     if name_h3 and name_h3.text.strip():
                         name = name_h3.text.strip()
-                    break # 抓到就立刻跳出迴圈！
+                    break 
         except:
             pass
 
@@ -232,13 +230,14 @@ def show_add_stock_dialog():
             time.sleep(1)
             st.rerun()
 
-# 🚀 更新：加入 W 代號提示的期貨對話框
+# 🚀 升級：自動抓取期貨名稱的對話框
 @st.dialog("⚡ 新增期貨部位")
 def show_add_futures_dialog():
     f_date = st.date_input("建立日期")
-    # 加上專屬的 W 提示
     f_ticker = st.text_input("商品代號", help="提示：期貨代號前面請加上 W (例如：WCDFJ6)。若輸入一般股票代號 (如 2330)，則會抓現貨價格作參考。").upper()
-    f_name = st.text_input("商品名稱 (如 台積電期, 大台)")
+    
+    # 【已刪除手動輸入名稱的欄位】
+    
     f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
     f_dir = 1 if "多" in f_dir_str else -1
     
@@ -254,18 +253,23 @@ def show_add_futures_dialog():
     f_price = st.number_input("成交價格 (點數/元)", min_value=0.01, step=1.0)
     
     if st.button("確認新增期貨", type="primary", use_container_width=True):
-        if f_ticker and f_name:
+        if f_ticker:
+            # 按下按鈕時，讓程式去幫你抓名字！
+            with st.spinner("雷達掃描商品名稱中..."):
+                p, n = fetch_price(f_ticker)
+                # 如果網路很順利抓到名字就用名字，抓不到就暫時用代號頂替
+                final_name = n if (n and n != f_ticker) else f_ticker 
+                
             next_id = max([r.get("id", 0) for r in db.get("futures_records", [])] + [0]) + 1
             db["futures_records"].append({
-                "id": next_id, "date": str(f_date), "ticker": f_ticker, "name": f_name,
+                "id": next_id, "date": str(f_date), "ticker": f_ticker, "name": final_name,
                 "direction": f_dir, "multiplier": f_mult, "lots": f_lots, "price": f_price
             })
+            
             if f_ticker not in db["market_data"]:
-                p, n = fetch_price(f_ticker) # 新增時自動試抓一次
-                # 如果沒抓到價格，先用手動填入的成交價當現價
-                db["market_data"][f_ticker] = {"price": p if p > 0 else f_price, "name": n if n != f_ticker else f_name}
+                db["market_data"][f_ticker] = {"price": p if p > 0 else f_price, "name": final_name}
             save_data(db)
-            st.success(f"已新增期貨部位 {f_name}！")
+            st.success(f"已成功新增部位 {final_name}！")
             time.sleep(1)
             st.rerun()
 
