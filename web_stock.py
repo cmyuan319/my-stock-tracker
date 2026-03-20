@@ -16,44 +16,39 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (新舊版通殺防彈版)
+# 📱 🚀 手機版視覺優化 CSS (暴力防彈版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 🔥 核心突破：同時鎖定 Streamlit 的新版與舊版排版標籤，強制橫向不准換行！ */
-        [data-testid="stHorizontalBlock"], 
-        [data-testid="stColumnLayout"] {
+        /* 🔥 最暴力的核心：強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
+        div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: stretch !important;
-            gap: 5px !important;
+            gap: 6px !important;
         }
         
-        /* 強制平分欄位寬度，打破 100% 佔滿的魔咒 */
-        [data-testid="column"], 
-        [data-testid="stColumn"] {
+        /* 強制平分寬度 */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             flex: 1 1 0% !important;
             width: auto !important;
             min-width: 0 !important;
             padding: 0 !important;
         }
         
-        /* 🔥 按鈕終極壓縮：鎖定高度，不准變形，化身精緻小方塊 */
+        /* 按鈕優化：變成完美的觸控方塊 */
         .stButton button { 
-            height: 38px !important; 
-            min-height: 38px !important;
-            max-height: 38px !important;
             padding: 0px !important; 
-            font-size: 18px !important; 
+            font-size: 20px !important; 
+            height: 42px !important;
             width: 100% !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            margin: 0 !important;
         }
 
         /* 確保百萬、千萬等級的數字能自動換行完整顯示 */
@@ -287,7 +282,7 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 乾淨俐落！4 個純圖示按鈕，這次絕對縮成一行小方塊！
+# 💡 純圖示按鈕
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
@@ -307,10 +302,35 @@ t1, t2, t3, t4, t5 = st.tabs(["📉庫存", "💰已實現", "📈獲利", "📊
 with t1:
     if display_stocks:
         df_p = pd.DataFrame(display_stocks)
-        fig = px.pie(df_p, values='mv', names='ticker', hole=0.6)
-        fig.update_layout(height=280, showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
-        fig.add_annotation(text=f"TWD<br>{tot_mv:,.0f}", showarrow=False, font_size=18)
-        st.plotly_chart(fig, use_container_width=True)
+        
+        # 💡 新增：左邊放縮小版圓餅圖，右邊放前五大持股
+        c_pie, c_list = st.columns(2)
+        
+        with c_pie:
+            fig = px.pie(df_p, values='mv', names='ticker', hole=0.6)
+            # 將高度縮小為 200，拿掉多餘邊距讓圖更緊湊
+            fig.update_layout(height=200, showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
+            # 圓餅中間維持完整數字，縮小一點字體
+            fig.add_annotation(text=f"TWD<br>{tot_mv:,.0f}", showarrow=False, font_size=13)
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with c_list:
+            # 用一點 HTML/CSS 畫出漂亮精緻的排行榜
+            st.markdown("<div style='padding-left: 5px; padding-top: 15px;'>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size: 14px; font-weight: bold; color: #555; margin-bottom: 8px;'>🏆 前五大持股</div>", unsafe_allow_html=True)
+            
+            # 抓出市值前 5 名
+            top5 = df_p.nlargest(5, 'mv')
+            for _, row in top5.iterrows():
+                pct = (row['mv'] / tot_mv) * 100
+                name_short = str(row['name'])[:4] # 名字太長截斷
+                st.markdown(f"<div style='font-size: 12px; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 3px;'>"
+                            f"<b>{row['ticker']}</b> <span style='color: #888;'>{name_short}</span>"
+                            f"<span style='float: right; color: #d9534f; font-weight: bold;'>{pct:.1f}%</span></div>", 
+                            unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        # 原有的股票詳細卡片
         for s in display_stocks:
             with st.expander(f"【{s['ticker']}】{s['name']} ｜ ${s['curr_p']:,.1f}"):
                 c1, c2, c3 = st.columns(3)
@@ -323,7 +343,6 @@ with t1:
                 c5.metric("損益", f"${s['un_p']:,}")
                 c6.metric("獲利率", f"{s['ret']:.2f}%")
                 
-                # 💡 這 2 個按鈕也會完美對半分！
                 b1, b2 = st.columns(2)
                 with b1:
                     if st.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
