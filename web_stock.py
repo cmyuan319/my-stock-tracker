@@ -108,12 +108,10 @@ def fetch_price(ticker):
         resp_w = requests.get(url_w, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup_w = BeautifulSoup(resp_w.text, 'html.parser')
         
-        # 抓取股價
         deal_span = soup_w.find('span', class_='deal', attrs={'c-model': 'close'})
         if deal_span and deal_span.text.strip() != "--":
             price = float(deal_span.text.replace(',', ''))
             
-        # 抓取名稱
         title_tag = soup_w.find('title')
         if title_tag:
             extracted_name = title_tag.text.split('(')[0].strip()
@@ -328,9 +326,17 @@ crd_loan = float(db.get("credit_loan", 0.0))
 
 total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
 
-if total_assets > 0: lev_str = f"{tot_exp / total_assets:.2f}x"
-elif total_assets <= 0 and tot_exp > 0: lev_str = "∞"
-else: lev_str = "0.0x"
+# 🚀 使用全新嚴格版槓桿倍數公式
+lev_numerator = tot_exp + pld_amt + crd_loan
+lev_denominator = tot_mv + acc_bal
+
+if lev_denominator > 0: 
+    lev_str = f"{lev_numerator / lev_denominator:.2f}x"
+elif lev_denominator <= 0 and lev_numerator > 0: 
+    lev_str = "∞"
+else: 
+    lev_str = "0.0x"
+
 m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 
 # --- 🚀 每日 14:00 後自動記錄歷史邏輯 ---
@@ -362,7 +368,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📉 未實現", "💰 已實現", "�
 with tab1:
     if display_data:
         for item in display_data:
-            # 使用括號與現價格式，創造出視覺上一致的清爽感
             card_title = f"【{item['ticker']}】{item['name']} ｜ 現價: ${item['curr_p']:,.2f}"
             with st.expander(card_title):
                 c1, c2, c3 = st.columns(3)
@@ -423,7 +428,8 @@ with tab5:
     
     st.markdown("#### 💵 資金編輯區")
     ec1, ec2, ec3, ec4 = st.columns(4)
-    new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
+    # 將介面正名為「銀行帳戶餘額」
+    new_bal = ec1.number_input("銀行帳戶餘額", value=int(acc_bal), step=10000)
     new_oth = ec2.number_input("其他資產", value=int(oth_assets), step=10000)
     new_pld = ec3.number_input("質押金額", value=int(pld_amt), step=10000)
     new_crd = ec4.number_input("信貸金額", value=int(crd_loan), step=10000)
