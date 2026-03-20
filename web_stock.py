@@ -16,39 +16,44 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (暴力防彈版)
+# 📱 🚀 手機版視覺優化 CSS (新舊版通殺防彈版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 🔥 最暴力的核心：強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
-        div[data-testid="stHorizontalBlock"] {
+        /* 🔥 核心突破：同時鎖定 Streamlit 的新版與舊版排版標籤，強制橫向不准換行！ */
+        [data-testid="stHorizontalBlock"], 
+        [data-testid="stColumnLayout"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: stretch !important;
-            gap: 6px !important;
+            gap: 5px !important;
         }
         
-        /* 強制平分寬度 */
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        /* 強制平分欄位寬度，打破 100% 佔滿的魔咒 */
+        [data-testid="column"], 
+        [data-testid="stColumn"] {
             flex: 1 1 0% !important;
             width: auto !important;
             min-width: 0 !important;
             padding: 0 !important;
         }
         
-        /* 按鈕優化：變成完美的觸控方塊 */
+        /* 🔥 按鈕終極壓縮：鎖定高度，不准變形，化身精緻小方塊 */
         .stButton button { 
+            height: 38px !important; 
+            min-height: 38px !important;
+            max-height: 38px !important;
             padding: 0px !important; 
-            font-size: 20px !important; 
-            height: 42px !important;
+            font-size: 18px !important; 
             width: 100% !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
+            margin: 0 !important;
         }
 
         /* 確保百萬、千萬等級的數字能自動換行完整顯示 */
@@ -282,7 +287,7 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 乾淨俐落！只有 4 個純圖示按鈕
+# 💡 乾淨俐落！4 個純圖示按鈕，這次絕對縮成一行小方塊！
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
@@ -318,6 +323,7 @@ with t1:
                 c5.metric("損益", f"${s['un_p']:,}")
                 c6.metric("獲利率", f"{s['ret']:.2f}%")
                 
+                # 💡 這 2 個按鈕也會完美對半分！
                 b1, b2 = st.columns(2)
                 with b1:
                     if st.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
@@ -361,7 +367,7 @@ with t3:
 
 with t4:
     if db["history"]:
-        st.line_chart(pd.DataFrame([{"日期": k, "資Assets": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
+        st.line_chart(pd.DataFrame([{"日期": k, "資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
 
 with t5:
     st.markdown("#### 🛡️ 風險指標")
