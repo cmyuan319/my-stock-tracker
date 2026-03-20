@@ -460,7 +460,7 @@ crd_loan = float(db.get("credit_loan", 0.0))
 total_assets = acc_bal + tot_mv + oth_assets + futures_equity - pld_amt - crd_loan
 
 # 總曝險與槓桿倍數 (精準版)
-lev_numerator = tot_exp + futures_exposure + pld_amt + crd_loan
+lev_numerator = tot_exp + futures_exposure
 if total_assets > 0: 
     lev_str = f"{lev_numerator / total_assets:.2f}x"
 elif total_assets <= 0 and lev_numerator > 0: 
