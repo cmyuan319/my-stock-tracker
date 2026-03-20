@@ -12,25 +12,27 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
+# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (暴力並排防彈版)
+# 📱 🚀 手機版視覺優化 CSS (暴力防彈版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 🔥 無視任何阻礙，強制所有分欄區塊在手機上「橫向並排」 */
+        /* 🔥 最暴力的核心：強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
         div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 5px !important;
+            align-items: stretch !important;
+            gap: 6px !important;
         }
         
-        /* 強制平分寬度，絕對不准擠成兩行 */
+        /* 強制平分寬度 */
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             flex: 1 1 0% !important;
             width: auto !important;
@@ -38,7 +40,7 @@ st.markdown("""
             padding: 0 !important;
         }
         
-        /* 將按鈕化身為券商 APP 的完美觸控方塊 */
+        /* 按鈕優化：變成完美的觸控方塊 */
         .stButton button { 
             padding: 0px !important; 
             font-size: 20px !important; 
@@ -49,7 +51,7 @@ st.markdown("""
             justify-content: center !important;
         }
 
-        /* 確保總曝險的千萬級數字自動換行，不被切斷 */
+        /* 確保百萬、千萬等級的數字能自動換行完整顯示 */
         [data-testid="stMetricValue"] {
             font-size: 1.4rem !important; 
             white-space: normal !important; 
@@ -280,7 +282,7 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 最純粹的圖示按鈕
+# 💡 乾淨俐落！只有 4 個純圖示按鈕
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
@@ -359,7 +361,7 @@ with t3:
 
 with t4:
     if db["history"]:
-        st.line_chart(pd.DataFrame([{"日期": k, "資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
+        st.line_chart(pd.DataFrame([{"日期": k, "資Assets": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
 
 with t5:
     st.markdown("#### 🛡️ 風險指標")
