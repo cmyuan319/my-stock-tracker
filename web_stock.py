@@ -12,7 +12,7 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-st.set_page_config(page_title="Reid 資產戰情室", layout="wide", page_icon="📈")
+st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
 # 📱 🚀 手機版視覺優化 CSS (vivo X300 Pro 專屬)
@@ -21,9 +21,9 @@ st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     @media (max-width: 600px) {
-        [data-testid="stMetric"] { display: inline-block; width: 32% !important; padding: 5px !important; text-align: center; }
-        [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
+        /* 優化手機版數字大小 */
+        [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
+        [data-testid="stMetricLabel"] { font-size: 0.9rem !important; }
         .stButton button { width: 100% !important; padding: 0px !important; font-size: 13px !important; height: 2.5rem !important; }
         .stTabs [data-baseweb="tab"] { padding-left: 10px !important; padding-right: 10px !important; font-size: 14px !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 0rem !important; }
@@ -69,7 +69,7 @@ def login_ui():
             time.sleep(1); st.rerun()
             return True
         except: pass
-    st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ Reid 資產紀錄網</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 財富自由之路</h1>", unsafe_allow_html=True)
     res = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://reid-stock.streamlit.app/"}})
     st.link_button("🚀 用 Google 帳號登入資料庫", res.url, type="primary", use_container_width=True)
     return False
@@ -85,7 +85,7 @@ def load_data():
     defaults = {
         "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, "credit_loan": 0.0, "other_assets": 0.0,
         "buy_records": [], "realized_records": [], "history": {}, "market_data": {},
-        "futures_capital": 0.0 # 💡 現在這個欄位代表「期貨權益數」
+        "futures_capital": 0.0 # 💡 這裡代表「期貨權益數」
     }
     if len(res.data) == 0:
         supabase.table("user_data").insert({"email": user_email, "data": defaults}).execute()
@@ -190,7 +190,7 @@ def sell_stock(ticker, name):
         db["buy_records"] = [x for x in db["buy_records"] if x["shares"] > 0]
         save_data(db); st.rerun()
 
-# --- 核心計算 (移除期貨計算) ---
+# --- 核心計算 (移除期貨明細計算) ---
 agg = {}
 for r in db["buy_records"]:
     t = r["ticker"]
@@ -231,10 +231,11 @@ if now_tw.hour >= 14:
 
 # --- 🚀 UI 介面 ---
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
-m1, m2, m3 = st.columns(3)
-m1.metric("槓桿倍數", lev_str)
-m2.metric("維持率", f"{m_ratio:.0f}%")
-m3.metric("總曝險", f"${tot_exp/10000:,.0f}萬")
+
+# 🌟 總資產與總獲利強勢回歸首頁！
+m1, m2 = st.columns(2)
+m1.metric("總淨資產", f"${total_assets:,.0f}")
+m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
@@ -286,10 +287,18 @@ with t4:
         st.line_chart(pd.DataFrame([{"日期": k, "資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
 
 with t5:
+    # 🌟 把風險指標安穩地放在這裡
+    st.markdown("#### 🛡️ 風險指標")
+    rc1, rc2, rc3 = st.columns(3)
+    rc1.metric("槓桿倍數", lev_str)
+    rc2.metric("維持率", f"{m_ratio:.0f}%")
+    rc3.metric("總曝險", f"${tot_exp/10000:,.0f}萬")
+    st.divider()
+    
     st.markdown("#### ⚖️ 資金手動調整")
     c1, c2 = st.columns(2)
     nb = c1.number_input("銀行餘額", value=float(db["account_balance"]))
-    nfc = c2.number_input("期貨權益數", value=float(db.get("futures_capital", 0.0))) # 💡 改為輸入權益數
+    nfc = c2.number_input("期貨權益數", value=float(db.get("futures_capital", 0.0))) 
     np = c1.number_input("質押金額", value=float(db["pledge_amount"]))
     ncl = c2.number_input("信貸金額", value=float(db["credit_loan"]))
     no = st.number_input("其他資產", value=float(db["other_assets"]))
