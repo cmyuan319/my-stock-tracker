@@ -16,58 +16,47 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (破除換行與截斷魔咒)
+# 📱 🚀 手機版視覺優化 CSS (溫和精準版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 600px) {
-        /* 1. 強制所有 st.columns 橫向並排，並且欄位均分 */
-        div[data-testid="stHorizontalBlock"] {
+        /* 1. 【精準鎖定】只針對剛好有 4 個欄位的區塊 (也就是我們的按鈕列) 強制並排 */
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4):last-child) {
             flex-wrap: nowrap !important;
-            gap: 2px !important;
+            gap: 5px !important;
         }
-        div[data-testid="column"] {
-            width: auto !important;
-            flex: 1 1 0% !important;
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4):last-child) > div[data-testid="column"] {
             min-width: 0 !important;
-            padding: 0 2px !important;
+            width: 25% !important;
         }
-        
-        /* 2. 徹底解決大數字被截斷變成 ... 的問題 */
-        [data-testid="stMetric"] {
-            padding: 0px !important;
-        }
-        [data-testid="stMetricValue"], [data-testid="stMetricValue"] > div {
-            font-size: 15px !important; /* 縮小字體確保塞得下 */
-            white-space: nowrap !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
-            letter-spacing: -0.5px !important;
-        }
-        [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] > div {
-            font-size: 11px !important;
-            white-space: nowrap !important;
-            overflow: visible !important;
-        }
-        
-        /* 3. 按鈕優化 (維持正常高度，避免被過度拉扯) */
+
+        /* 2. 把按鈕變成精緻的小正方形 */
         .stButton button { 
             padding: 0px !important; 
-            font-size: 18px !important; /* 放大圖示 */
-            min-height: 2.2rem !important;
+            font-size: 20px !important; 
+            height: 45px !important;
+            width: 100% !important;
+        }
+
+        /* 3. 解決數字被截斷的問題：允許超長數字換行或完整顯示 */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important; /* 恢復大數字的氣勢 */
+            white-space: normal !important; 
+            word-wrap: break-word !important;
         }
         
-        /* 4. 分頁緊湊化 */
-        .stTabs [data-baseweb="tab"] { 
-            padding-left: 6px !important; 
-            padding-right: 6px !important; 
-            font-size: 13px !important; 
-        }
+        /* 4. 縮減不必要的留白 */
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 0rem !important; 
+        }
+        .stTabs [data-baseweb="tab"] { 
+            padding-left: 8px !important; 
+            padding-right: 8px !important; 
+            font-size: 14px !important; 
         }
     }
     </style>
@@ -273,22 +262,24 @@ if now_tw.hour >= 14:
 
 # --- 🚀 UI 介面 ---
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
+
+# 💡 總淨資產與總獲利，放任它們在手機上自然排列，字體大且不被切斷
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 按鈕操作列：切分成 6 等份，只用前 4 格放圖示，讓按鈕變成精緻小方塊！
-btn_cols = st.columns(6)
-if btn_cols[0].button("➕", help="新增股票", use_container_width=True): add_stock()
-if btn_cols[1].button("⚙️", help="設定", use_container_width=True): show_settings()
-if btn_cols[2].button("🔄", help="更新報價", use_container_width=True):
+# 💡 按鈕操作列 (精準 CSS 鎖定這 4 個欄位)
+c_a, c_set, c_up, c_out = st.columns(4)
+if c_a.button("➕", help="新增股票", use_container_width=True): add_stock()
+if c_set.button("⚙️", help="設定", use_container_width=True): show_settings()
+if c_up.button("🔄", help="更新報價", use_container_width=True):
     with st.spinner("更新中..."):
         for t in {r["ticker"] for r in db["buy_records"]}:
             p, n = fetch_price(t); db["market_data"][t] = {"price": p, "name": n}
     save_data(db); st.rerun()
-if btn_cols[3].button("🚪", help="登出", use_container_width=True): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
+if c_out.button("🚪", help="登出", use_container_width=True): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
 
 t1, t2, t3, t4, t5 = st.tabs(["📉庫存", "💰已實現", "📈獲利", "📊資產", "⚖️資金"])
 
@@ -357,6 +348,7 @@ with t4:
 with t5:
     st.markdown("#### 🛡️ 風險指標")
     rc1, rc2, rc3 = st.columns(3)
+    # 💡 放任它們在手機上垂直排列，確保千萬等級的曝險數字能完整顯示
     rc1.metric("槓桿倍數", lev_str)
     rc2.metric("維持率", f"{m_ratio:.0f}%")
     rc3.metric("總曝險", f"${tot_exp:,.0f}")
