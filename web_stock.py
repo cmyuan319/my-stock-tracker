@@ -528,7 +528,7 @@ tab1, tab2, tab_futures, tab3, tab4, tab5 = st.tabs(["📉 股票庫存", "💰 
 with tab1:
     if display_data:
         
-        # ==========================================
+# ==========================================
         # 🍩 🚀 新增：資產分佈互動式甜甜圈圖
         # ==========================================
         df_pie = pd.DataFrame([{
@@ -538,25 +538,31 @@ with tab1:
         
         if not df_pie.empty:
             fig = px.pie(df_pie, values='Value', names='Stock', hole=0.65)
+            
             # 設定滑鼠游標浮上的精緻提示框
             fig.update_traces(
                 textposition='inside', 
                 textinfo='percent',
                 hovertemplate="<b>%{label}</b><br>市值: $%{value:,.0f}<br>佔比: %{percent}<extra></extra>"
             )
-            # 設定中間的「總市值」文字與圖表排版
+            
+            # 改用最單純、最不會報錯的版面設定法
             fig.update_layout(
-                annotations=[dict(
-                    text=f"<b>TWD<br>{tot_mv:,.0f}</b>", # 🚀 改用 HTML 的 <b> 標籤來加粗字體
-                    x=0.5, y=0.5, 
-                    showarrow=False,
-                    font=dict(size=22, color="#003366")  # 🚀 把字體大小 (size) 統一收合進來
-                )],
+                margin=dict(t=20, b=20, l=10, r=10),
+                height=280,
                 showlegend=True,
-                legend=dict(orientation="v", yanchor="center", y=0.5, xanchor="left", x=1.0),
-                margin=dict(t=10, b=10, l=0, r=0),
-                height=280 # 高度縮減，符合手機螢幕舒適閱讀範圍
+                legend=dict(orientation="v", yanchor="center", y=0.5, xanchor="left", x=1.0)
             )
+            
+            # 🚀 獨立把「總市值」文字貼在圖表正中央，避開刁鑽的格式檢查！
+            fig.add_annotation(
+                x=0.5, 
+                y=0.5, 
+                text=f"<b>TWD<br>{tot_mv:,.0f}</b>",
+                font=dict(size=22, color="#003366"),
+                showarrow=False
+            )
+            
             st.plotly_chart(fig, use_container_width=True)
             st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
         # ==========================================
