@@ -321,6 +321,8 @@ futures_equity = fut_cap + futures_unrealized + futures_realized_p
 tot_profit = stock_unrealized + stock_realized + futures_unrealized + futures_realized_p
 acc_bal, oth_assets, pld_amt, crd_loan = float(db.get("account_balance", 0.0)), float(db.get("other_assets", 0.0)), float(db.get("pledge_amount", 0.0)), float(db.get("credit_loan", 0.0))
 total_assets = acc_bal + tot_mv + oth_assets + futures_equity - pld_amt - crd_loan
+# 🚀 補上這行計算質押維持率
+m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 lev_str = f"{(tot_exp + futures_exposure) / total_assets:.2f}x" if total_assets > 0 else "0.00x"
 
 # --- 主畫面 ---
