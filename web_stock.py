@@ -12,53 +12,58 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
+# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (破除換行魔咒版)
+# 📱 🚀 手機版視覺優化 CSS (破除換行與截斷魔咒)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
-    /* === 破除 Streamlit 手機版強制換行的魔咒 === */
     @media (max-width: 600px) {
-        /* 1. 強制所有 st.columns 橫向並排，絕對不換行 */
+        /* 1. 強制所有 st.columns 橫向並排，並且欄位均分 */
         div[data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
-            gap: 5px !important;
+            gap: 2px !important;
         }
         div[data-testid="column"] {
             width: auto !important;
             flex: 1 1 0% !important;
             min-width: 0 !important;
+            padding: 0 2px !important;
         }
         
-        /* 2. 解決 Metric 數字被截斷變成 ... 的問題 */
+        /* 2. 徹底解決大數字被截斷變成 ... 的問題 */
+        [data-testid="stMetric"] {
+            padding: 0px !important;
+        }
         [data-testid="stMetricValue"], [data-testid="stMetricValue"] > div {
-            font-size: 15px !important; /* 稍微縮小字體以塞進完整數字 */
+            font-size: 15px !important; /* 縮小字體確保塞得下 */
             white-space: nowrap !important;
             overflow: visible !important;
             text-overflow: clip !important;
+            letter-spacing: -0.5px !important;
         }
-        [data-testid="stMetricLabel"] {
+        [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] > div {
             font-size: 11px !important;
             white-space: nowrap !important;
+            overflow: visible !important;
         }
         
-        /* 3. 按鈕優化 (等寬、填滿) */
+        /* 3. 按鈕優化 (維持正常高度，避免被過度拉扯) */
         .stButton button { 
-            width: 100% !important; 
             padding: 0px !important; 
-            font-size: 14px !important; 
-            height: 2.5rem !important; 
+            font-size: 18px !important; /* 放大圖示 */
+            min-height: 2.2rem !important;
         }
         
-        /* 4. 緊湊版面，消除多餘空白 */
+        /* 4. 分頁緊湊化 */
         .stTabs [data-baseweb="tab"] { 
-            padding-left: 8px !important; 
-            padding-right: 8px !important; 
-            font-size: 14px !important; 
+            padding-left: 6px !important; 
+            padding-right: 6px !important; 
+            font-size: 13px !important; 
         }
         .block-container { 
             padding-top: 1rem !important; 
@@ -140,7 +145,7 @@ def save_data(data):
 
 db = load_data()
 
-# --- 🚀 爬蟲與精算引擎 ---
+# --- 🚀 爬蟲與精算引擎 (專注於股票) ---
 def fetch_price(ticker):
     price, name = 0.0, ticker
     t_l = ticker.lower()
@@ -274,16 +279,16 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 按鈕操作列 (改成剛好 4 個欄位均分，保證並排)
-c_a, c_set, c_up, c_out = st.columns(4)
-if c_a.button("➕股", use_container_width=True): add_stock()
-if c_set.button("⚙️", use_container_width=True): show_settings()
-if c_up.button("🔄", use_container_width=True):
+# 💡 按鈕操作列：切分成 6 等份，只用前 4 格放圖示，讓按鈕變成精緻小方塊！
+btn_cols = st.columns(6)
+if btn_cols[0].button("➕", help="新增股票", use_container_width=True): add_stock()
+if btn_cols[1].button("⚙️", help="設定", use_container_width=True): show_settings()
+if btn_cols[2].button("🔄", help="更新報價", use_container_width=True):
     with st.spinner("更新中..."):
         for t in {r["ticker"] for r in db["buy_records"]}:
             p, n = fetch_price(t); db["market_data"][t] = {"price": p, "name": n}
     save_data(db); st.rerun()
-if c_out.button("🚪", use_container_width=True): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
+if btn_cols[3].button("🚪", help="登出", use_container_width=True): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
 
 t1, t2, t3, t4, t5 = st.tabs(["📉庫存", "💰已實現", "📈獲利", "📊資產", "⚖️資金"])
 
