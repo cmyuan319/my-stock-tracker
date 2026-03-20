@@ -1,115 +1,195 @@
 import streamlit as st
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import json
+from datetime import timedelta, timezone
+import datetime 
+from supabase import create_client, Client
+import time
+import re
+import extra_streamlit_components as stx
 import plotly.express as px
-from datetime import datetime
 
-# 設定網頁標題與寬度
-st.set_page_config(page_title="Reid 的資產監控中心", layout="wide")
+# --- 頁面基本設定 ---
+st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
 
-# 模擬資料庫 (實務上應連接資料庫或 CSV)
-# 這裡預設一些資料，確保圖表能跑
-if 'db' not in st.session_state:
-    st.session_state.db = {
-        "stocks": {
-            "00631L": {"qty": 10000, "cost": 150.5, "price": 210.2},
-            "2330": {"qty": 1000, "cost": 600, "price": 780}
-        },
-        "pld_amt": 500000,   # 質押借款金額
-        "acc_bal": 200000,   # 銀行存款
-        "oth_assets": 50000, # 其他資產
-        "futures_equity": 300000, # 期貨權益數
-        "futures_exposure": 1200000, # 期貨曝險 (例如口數 * 點數 * 乘數)
-        "history": {
-            "2026-03-18": {"profit": 1500000, "assets": 5000000},
-            "2026-03-19": {"profit": 1550000, "assets": 5100000},
-            "2026-03-20": {"profit": 1580000, "assets": 5200000}
-        }
-    }
+# ==========================================
+# 🍪 Cookie 管理器初始化
+# ==========================================
+cookie_manager = stx.CookieManager(key="my_cookies")
 
-db = st.session_state.db
+# ==========================================
+# 🚀 雲端資料庫 Supabase 初始化
+# ==========================================
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-# --- 計算邏輯 ---
-# 1. 現貨市值與成本
-tot_mv = sum(s['qty'] * s['price'] for s in db['stocks'].values())
-tot_cost = sum(s['qty'] * s['cost'] for s in db['stocks'].values())
-stock_profit = tot_mv - tot_cost
+supabase = init_supabase()
 
-# 2. 總資產計算
-# 總資產 = 銀行存款 + 股票市值 + 其他資產 + 期貨權益 - 質押借款
-total_assets = db['acc_bal'] + tot_mv + db['oth_assets'] + db['futures_equity'] - db['pld_amt']
+# ==========================================
+# 🔐 Google 登入防護網
+# ==========================================
+def login_ui():
+    cookies = cookie_manager.get_all()
+    if cookies is None:
+        st.info("🔄 正在讀取您的安全憑證...")
+        return False
+    saved_email = cookies.get("user_email") if isinstance(cookies, dict) else None
+    if "user_email" in st.session_state:
+        return True
+    elif saved_email:
+        st.session_state["user_email"] = saved_email
+        return True
+    if "code" in st.query_params:
+        try:
+            code = st.query_params["code"]
+            res = supabase.auth.exchange_code_for_session({"auth_code": code})
+            email = res.user.email
+            st.session_state["user_email"] = email
+            cookie_manager.set("user_email", email, max_age=30*24*60*60)
+            st.query_params.clear()
+            time.sleep(1); st.rerun()
+            return True
+        except: pass
+    st.markdown("<h1 style='text-align: center;'>🛋️ 個人資產紀錄網</h1>", unsafe_allow_html=True)
+    res = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://reid-stock.streamlit.app/"}})
+    st.link_button("🚀 用 Google 帳號安全登入", res.url, type="primary", use_container_width=True)
+    return False
 
-# 3. 曝險與維持率
-# 總曝險 = 現貨市值 + 期貨曝險
-total_exposure = tot_mv + db['futures_exposure']
-# 質押維持率 = (質押股票市值 / 借款金額) * 100
-m_ratio = (tot_mv / db['pld_amt'] * 100) if db['pld_amt'] > 0 else 0
-# 槓桿倍數 = 總曝險 / 總資產
-lev_str = f"{total_exposure / total_assets:.2f}x" if total_assets > 0 else "0.00x"
+if not login_ui(): st.stop()
 
-# --- 側邊欄 ---
-st.sidebar.title("🛠️ 資產設定")
-db['acc_bal'] = st.sidebar.number_input("銀行存款", value=db['acc_bal'])
-db['pld_amt'] = st.sidebar.number_input("質押借款", value=db['pld_amt'])
-db['futures_equity'] = st.sidebar.number_input("期貨權益數", value=db['futures_equity'])
-db['futures_exposure'] = st.sidebar.number_input("期貨總曝險額", value=db['futures_exposure'])
+# ==========================================
+# 🗄️ 資料庫讀寫邏輯
+# ==========================================
+user_email = st.session_state["user_email"]
+def load_data():
+    res = supabase.table("user_data").select("*").eq("email", user_email).execute()
+    if len(res.data) == 0:
+        d = {"fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], "history": {}, "market_data": {}, "futures_capital": 0.0, "futures_records": [], "futures_realized": [], "fee_fut_tx": 50.0, "fee_fut_mtx": 25.0}
+        supabase.table("user_data").insert({"email": user_email, "data": d}).execute()
+        return d
+    return res.data[0]["data"]
 
-# --- 主介面 ---
-st.title("🚀 Reid 投資戰情室")
+def save_data(data):
+    supabase.table("user_data").update({"data": data}).eq("email", user_email).execute()
 
-# 頂部資訊面板
-rc1, rc2, rc3 = st.columns(3)
-rc1.metric("槓桿倍數", lev_str)
-rc2.metric("質押維持率", f"{m_ratio:.1f}%")
-rc3.metric("總曝險額", f"${total_exposure:,.0f}")
+db = load_data()
+# 防呆補齊
+for k in ["market_data", "futures_records", "buy_records", "history"]:
+    if k not in db: db[k] = {} if k in ["market_data", "history"] else []
 
-# 分頁系統
-tab1, tab2, tab3, tab4 = st.tabs(["📊 資產分佈", "📜 持股明細", "📈 獲利走勢", "💰 資產走勢"])
+# --- 🚀 爬蟲引擎 ---
+def fetch_price(ticker):
+    price, name = 0.0, ticker
+    t_l = ticker.lower()
+    for url, tag in [(f"https://www.wantgoo.com/stock/{t_l}", 'span'), (f"https://www.wantgoo.com/futures/{t_l}", 'div')]:
+        try:
+            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            node = soup.find(tag, class_='deal', attrs={'c-model': 'close'})
+            if node and node.text.strip() != "--":
+                price = float(node.text.replace(',', ''))
+                nh3 = soup.find('h3', attrs={'c-model': 'name'})
+                if nh3: name = nh3.text.strip()
+                break
+        except: pass
+    return price, name
 
-with tab1:
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("### 🍕 資產組成比重")
-        pie_data = pd.DataFrame({
-            "項目": ["現金", "股票市值", "其他資產", "期貨權益"],
-            "金額": [db['acc_bal'], tot_mv, db['oth_assets'], db['futures_equity']]
-        })
-        fig = px.pie(pie_data, values='金額', names='項目', hole=0.4,
-                     color_discrete_sequence=px.colors.qualitative.Pastel)
+def calc_futures_cost(mult, p, lots):
+    fee = float(db.get("fee_fut_tx", 50.0)) if mult == 200 else float(db.get("fee_fut_mtx", 25.0))
+    return (fee * lots) + (p * mult * lots * 0.00002)
+
+# --- 彈出視窗 ---
+@st.dialog("⚙️ 設定")
+def show_settings():
+    new_d = st.number_input("股票手續費折數", value=float(db.get("fee_discount", 6.0)))
+    new_tx = st.number_input("大台手續費", value=float(db.get("fee_fut_tx", 50.0)))
+    new_mtx = st.number_input("小台手續費", value=float(db.get("fee_fut_mtx", 25.0)))
+    if st.button("儲存"):
+        db["fee_discount"], db["fee_fut_tx"], db["fee_fut_mtx"] = new_d, new_tx, new_mtx
+        save_data(db); st.rerun()
+
+@st.dialog("➕ 股")
+def add_stock():
+    d, t = st.date_input("日期"), st.text_input("代號").upper()
+    s, p = st.number_input("股數", min_value=1), st.number_input("單價", min_value=0.01)
+    if st.button("新增"):
+        pr, na = fetch_price(t); db["market_data"][t] = {"price": pr, "name": na}
+        db["buy_records"].append({"id": int(time.time()), "date": str(d), "ticker": t, "shares": s, "price": p})
+        save_data(db); st.rerun()
+
+@st.dialog("➕ 期")
+def add_futures():
+    d, t = st.date_input("日期"), st.text_input("代號", placeholder="期貨請加 W").upper()
+    dir = 1 if "多" in st.selectbox("方向", ["多", "空"]) else -1
+    m_str = st.selectbox("規格", ["大台 (200)", "小台 (50)", "微台 (10)", "股期 (2000)"])
+    mult = int(re.search(r'\((\d+)\)', m_str).group(1))
+    l, p = st.number_input("口數", min_value=1), st.number_input("成交價")
+    if st.button("新增"):
+        with st.spinner("抓取名稱..."): pr, na = fetch_price(t)
+        db["futures_records"].append({"id": int(time.time()), "ticker": t, "name": na, "direction": dir, "multiplier": mult, "lots": l, "price": p})
+        db["market_data"][t] = {"price": pr if pr > 0 else p, "name": na}
+        save_data(db); st.rerun()
+
+# --- 核心計算 ---
+tot_mv, stock_unrealized, display_stocks = 0, 0, []
+for r in db["buy_records"]:
+    t = r["ticker"]
+    curr = db["market_data"].get(t, {"price": 0.0, "name": t})
+    mv = r["shares"] * curr["price"]; tot_mv += mv
+    cost = r["shares"] * r["price"] * (1 + 0.001425 * (db["fee_discount"]/10))
+    tax = mv * (0.001 if t.startswith("00") else 0.003)
+    un = round(mv - (mv * 0.001425 * (db["fee_discount"]/10)) - tax - cost)
+    stock_unrealized += un
+    display_stocks.append({"ticker": t, "name": curr["name"], "mv": mv, "un": un})
+
+fut_unrealized, fut_exp = 0, 0
+for f in db["futures_records"]:
+    cp = db["market_data"].get(f["ticker"], {"price": f["price"]})["price"]
+    gross = (cp - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+    un = round(gross - calc_futures_cost(f["multiplier"], f["price"], f["lots"]) - calc_futures_cost(f["multiplier"], cp, f["lots"]))
+    fut_unrealized += un; fut_exp += (cp * f["multiplier"] * f["lots"])
+
+total_assets = float(db["account_balance"]) + tot_mv + float(db["other_assets"]) + (float(db["futures_capital"]) + fut_unrealized) - float(db["pledge_amount"]) - float(db["credit_loan"])
+total_exposure = tot_mv + fut_exp
+lev = total_exposure / total_assets if total_assets > 0 else 0
+m_ratio = (tot_mv / float(db["pledge_amount"]) * 100) if float(db["pledge_amount"]) > 0 else 0
+
+# --- UI 介面 ---
+col_s, c_a, c_f, c_set, c_up, c_out = st.columns([4, 1, 1, 1, 1, 1])
+if c_a.button("➕ 股"): add_stock()
+if c_f.button("➕ 期"): add_futures()
+if c_set.button("⚙️"): show_settings()
+if c_up.button("🔄"):
+    for t in {r["ticker"] for r in db["buy_records"]} | {f["ticker"] for f in db["futures_records"]}:
+        p, n = fetch_price(t)
+        if p > 0: db["market_data"][t] = {"price": p, "name": n}
+    save_data(db); st.rerun()
+
+m1, m2, m3 = st.columns(3)
+m1.metric("槓桿倍數", f"{lev:.2f}x"); m2.metric("質押維持率", f"{m_ratio:.1f}%"); m3.metric("總曝險額", f"${total_exposure:,.0f}")
+
+t1, t2, t3, t4, t5 = st.tabs(["📉 庫存", "⚡ 期貨", "📈 獲利走勢", "📊 資產走勢", "⚖️ 資金"])
+with t1:
+    df_p = pd.DataFrame(display_stocks)
+    if not df_p.empty:
+        fig = px.pie(df_p, values='mv', names='ticker', hole=0.6)
+        fig.add_annotation(text=f"TWD<br>{tot_mv:,.0f}", showarrow=False, font_size=20)
         st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.markdown("### 📋 關鍵數據")
-        st.write(f"**總資產：** ${total_assets:,.0f}")
-        st.write(f"**股票總市值：** ${tot_mv:,.0f}")
-        st.write(f"**目前總獲利：** ${stock_profit:,.0f}")
-        if m_ratio < 160:
-            st.error("⚠️ 警告：質押維持率過低！")
-        elif m_ratio < 180:
-            st.warning("⚡ 提醒：請留意維持率狀況。")
-
-with tab2:
-    st.markdown("### 📋 持股清單")
-    df_stocks = pd.DataFrame.from_dict(db['stocks'], orient='index')
-    df_stocks['市值'] = df_stocks['qty'] * df_stocks['price']
-    df_stocks['損益'] = (df_stocks['price'] - df_stocks['cost']) * df_stocks['qty']
-    st.dataframe(df_stocks.style.format("{:,.1f}"))
-
-with tab3:
-    st.markdown("### 📈 每日總獲利變動")
-    if db.get("history"):
-        df_profit = pd.DataFrame([{"日期": k, "總獲利": v["profit"]} for k, v in db["history"].items()])
-        st.line_chart(df_profit.set_index("日期"))
-    else:
-        st.info("尚無歷史獲利數據。")
-
-with tab4:
-    st.markdown("### 💰 總資產淨值走勢")
-    if db.get("history"):
-        df_assets = pd.DataFrame([{"日期": k, "總資產": v["assets"]} for k, v in db["history"].items()])
-        st.line_chart(df_assets.set_index("日期"))
-    else:
-        st.info("尚無歷史資產數據。")
-
-st.divider()
-st.caption(f"最後更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+with t3:
+    if db["history"]:
+        st.line_chart(pd.DataFrame([{"D": k, "P": v["profit"]} for k, v in db["history"].items()]).set_index("D"))
+with t4:
+    if db["history"]:
+        st.line_chart(pd.DataFrame([{"D": k, "A": v["assets"]} for k, v in db["history"].items()]).set_index("D"))
+with t5:
+    nb = st.number_input("銀行餘額", value=float(db["account_balance"]))
+    nfc = st.number_input("期貨本金", value=float(db["futures_capital"]))
+    np = st.number_input("質押金額", value=float(db["pledge_amount"]))
+    if st.button("💾 更新"):
+        db["account_balance"], db["futures_capital"], db["pledge_amount"] = nb, nfc, np
+        save_data(db); st.rerun()
