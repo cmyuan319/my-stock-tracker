@@ -12,22 +12,58 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (vivo X300 Pro 專屬)
+# 📱 🚀 手機版視覺優化 CSS (破除換行魔咒版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+    
+    /* === 破除 Streamlit 手機版強制換行的魔咒 === */
     @media (max-width: 600px) {
-        [data-testid="stMetric"] { display: inline-block; width: 32% !important; padding: 5px !important; text-align: center; }
-        [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
-        .stButton button { width: 100% !important; padding: 0px !important; font-size: 13px !important; height: 2.5rem !important; }
-        .stTabs [data-baseweb="tab"] { padding-left: 10px !important; padding-right: 10px !important; font-size: 14px !important; }
-        .block-container { padding-top: 1.5rem !important; padding-bottom: 0rem !important; }
+        /* 1. 強制所有 st.columns 橫向並排，絕對不換行 */
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            gap: 5px !important;
+        }
+        div[data-testid="column"] {
+            width: auto !important;
+            flex: 1 1 0% !important;
+            min-width: 0 !important;
+        }
+        
+        /* 2. 解決 Metric 數字被截斷變成 ... 的問題 */
+        [data-testid="stMetricValue"], [data-testid="stMetricValue"] > div {
+            font-size: 15px !important; /* 稍微縮小字體以塞進完整數字 */
+            white-space: nowrap !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 11px !important;
+            white-space: nowrap !important;
+        }
+        
+        /* 3. 按鈕優化 (等寬、填滿) */
+        .stButton button { 
+            width: 100% !important; 
+            padding: 0px !important; 
+            font-size: 14px !important; 
+            height: 2.5rem !important; 
+        }
+        
+        /* 4. 緊湊版面，消除多餘空白 */
+        .stTabs [data-baseweb="tab"] { 
+            padding-left: 8px !important; 
+            padding-right: 8px !important; 
+            font-size: 14px !important; 
+        }
+        .block-container { 
+            padding-top: 1rem !important; 
+            padding-bottom: 0rem !important; 
+        }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -71,7 +107,6 @@ def login_ui():
             return True
         except: pass
     
-    # 💡 主畫面標題固定
     st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 財富自由之路</h1>", unsafe_allow_html=True)
     res = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://reid-stock.streamlit.app/"}})
     st.link_button("🚀 用 Google 帳號登入資料庫", res.url, type="primary", use_container_width=True)
@@ -105,7 +140,7 @@ def save_data(data):
 
 db = load_data()
 
-# --- 🚀 爬蟲與精算引擎 (專注於股票) ---
+# --- 🚀 爬蟲與精算引擎 ---
 def fetch_price(ticker):
     price, name = 0.0, ticker
     t_l = ticker.lower()
@@ -193,7 +228,7 @@ def sell_stock(ticker, name):
         db["buy_records"] = [x for x in db["buy_records"] if x["shares"] > 0]
         save_data(db); st.rerun()
 
-# --- 核心計算 (移除期貨計算) ---
+# --- 核心計算 ---
 agg = {}
 for r in db["buy_records"]:
     t = r["ticker"]
@@ -206,7 +241,7 @@ for t, d in agg.items():
     info = db["market_data"].get(t, {"price": 0.0, "name": t})
     curr_p, name = info["price"], info["name"]
     mv = shares * curr_p; tot_mv += mv
-    tot_exp += (mv * 2 if t.endswith("L") else mv) # L系列 ETF 兩倍曝險
+    tot_exp += (mv * 2 if t.endswith("L") else mv) 
     cost = calc_cost_profit(t, shares, d["cost"]/shares)
     tax = mv * (0.001 if t.startswith("00") else 0.003)
     un_p = round(mv - (mv * 0.001425 * (db["fee_discount"]/10)) - tax - cost)
@@ -239,16 +274,16 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 按鈕操作列
-c_sp, c_a, c_set, c_up, c_out = st.columns([2.5, 1, 1, 1, 1], gap="small")
-if c_a.button("➕股"): add_stock()
-if c_set.button("⚙️"): show_settings()
-if c_up.button("🔄"):
+# 💡 按鈕操作列 (改成剛好 4 個欄位均分，保證並排)
+c_a, c_set, c_up, c_out = st.columns(4)
+if c_a.button("➕股", use_container_width=True): add_stock()
+if c_set.button("⚙️", use_container_width=True): show_settings()
+if c_up.button("🔄", use_container_width=True):
     with st.spinner("更新中..."):
         for t in {r["ticker"] for r in db["buy_records"]}:
             p, n = fetch_price(t); db["market_data"][t] = {"price": p, "name": n}
     save_data(db); st.rerun()
-if c_out.button("🚪"): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
+if c_out.button("🚪", use_container_width=True): cookie_manager.delete("user_email"); st.session_state.clear(); st.rerun()
 
 t1, t2, t3, t4, t5 = st.tabs(["📉庫存", "💰已實現", "📈獲利", "📊資產", "⚖️資金"])
 
@@ -279,32 +314,27 @@ with t1:
 with t2:
     if db.get("realized_records"):
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
-            # 💡 展開詳細的手續費與稅金計算
             ticker = r["ticker"]
             shares = r["shares"]
             bp = r["buy_price"]
             sp = r["sell_price"]
             disc = db.get("fee_discount", 6.0) / 10.0
-            
             buy_cost = shares * bp
             buy_fee = buy_cost * 0.001425 * disc
             sell_rev = shares * sp
             sell_fee = sell_rev * 0.001425 * disc
             tax_rate = 0.001 if ticker.startswith("00") else 0.003
             sell_tax = sell_rev * tax_rate
-            
             total_cost = buy_cost + buy_fee
             net_profit = round(sell_rev - sell_fee - sell_tax - total_cost)
             roi = (net_profit / total_cost) * 100 if total_cost > 0 else 0
             
-            # UI 呈現券商對帳單等級的明細
             with st.expander(f"{r['sell_date']} ｜ {ticker} ｜ 淨損益: ${net_profit:,}"):
                 st.markdown(f"**交易:** {shares:,}股 ｜ **均進:** ${bp:.2f} ｜ **均出:** ${sp:.2f}")
                 c1, c2, c3 = st.columns(3)
                 c1.metric("總成本", f"${round(total_cost):,}")
                 c2.metric("手續費", f"${round(buy_fee + sell_fee):,}")
                 c3.metric("交易稅", f"${round(sell_tax):,}")
-                
                 c4, c5, c6 = st.columns(3)
                 c4.metric("賣出總額", f"${round(sell_rev):,}")
                 c5.metric("淨損益", f"${net_profit:,}")
