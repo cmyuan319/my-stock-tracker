@@ -15,10 +15,6 @@ st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon=
 # ==========================================
 # 🍪 Cookie 管理器初始化
 # ==========================================
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
 cookie_manager = get_cookie_manager()
 
 # ==========================================
