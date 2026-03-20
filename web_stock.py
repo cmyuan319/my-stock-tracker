@@ -92,21 +92,63 @@ def save_data(data):
 
 db = load_data()
 
-# --- 🚀 爬蟲與計算引擎 ---
+# --- 🚀 爬蟲與計算引擎 (三棲完整版) ---
 def fetch_price(ticker):
-    price, name = 0.0, ticker
-    t_l = ticker.lower()
-    for url, tag in [(f"https://www.wantgoo.com/stock/{t_l}", 'span'), (f"https://www.wantgoo.com/futures/{t_l}", 'div')]:
+    price = 0.0
+    name = ticker
+    
+    # 1. 主引擎：玩股網 (支援現貨與期貨)
+    t_lower = ticker.lower()
+    urls_to_try = [
+        (f"https://www.wantgoo.com/stock/{t_lower}", 'span'),
+        (f"https://www.wantgoo.com/futures/{t_lower}", 'div')
+    ]
+    
+    for url, tag in urls_to_try:
         try:
-            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            node = soup.find(tag, class_='deal', attrs={'c-model': 'close'})
-            if node and node.text.strip() != "--":
-                price = float(node.text.replace(',', ''))
-                nh3 = soup.find('h3', attrs={'c-model': 'name'})
-                if nh3: name = nh3.text.strip()
-                break
+            resp_w = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            if resp_w.status_code == 200:
+                soup_w = BeautifulSoup(resp_w.text, 'html.parser')
+                deal_node = soup_w.find(tag, class_='deal', attrs={'c-model': 'close'})
+                if deal_node and deal_node.text.strip() != "--":
+                    price = float(deal_node.text.replace(',', ''))
+                    name_h3 = soup_w.find('h3', attrs={'c-model': 'name'})
+                    if name_h3 and name_h3.text.strip():
+                        name = name_h3.text.strip()
+                    break 
+        except:
+            pass
+
+    # 2. 備用引擎：Google 財經 (專攻現貨即時股價)
+    if price == 0.0:
+        for exchange in ['TPE', 'TWO']:
+            if price > 0: break
+            try:
+                url_g = f"https://www.google.com/finance/quote/{ticker}:{exchange}?hl=zh-TW"
+                resp_g = requests.get(url_g, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                soup_g = BeautifulSoup(resp_g.text, 'html.parser')
+                p_div = soup_g.find('div', class_='YMlKec fxKbKc')
+                if p_div: 
+                    price = float(p_div.text.replace('$', '').replace(',', ''))
+            except: pass
+            
+    # 3. 備用引擎：Yahoo 奇摩 (抓取名稱與最後防線報價)
+    if price == 0.0 or name == ticker:
+        try:
+            url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
+            resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup_y = BeautifulSoup(resp_y.text, 'html.parser')
+            if name == ticker:
+                title_tag = soup_y.find('title')
+                if title_tag:
+                    extracted_name = title_tag.text.split('(')[0].strip()
+                    if "Yahoo" not in extracted_name: name = extracted_name
+            
+            if price == 0.0:
+                match = re.search(r'"regularMarketPrice":([0-9.]+)', resp_y.text)
+                if match: price = float(match.group(1))
         except: pass
+        
     return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
