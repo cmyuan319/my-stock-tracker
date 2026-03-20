@@ -9,6 +9,7 @@ from supabase import create_client, Client
 import time
 import re
 import extra_streamlit_components as stx
+import plotly.express as px  # 🚀 新增：繪圖大神套件
 
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
@@ -117,7 +118,6 @@ if "db" not in st.session_state:
 
 db = st.session_state.db
 
-# 🚀 確保所有用戶都有期貨與手續費的欄位
 if "market_data" not in db: db["market_data"] = {}
 if "futures_capital" not in db: db["futures_capital"] = 0.0
 if "futures_records" not in db: db["futures_records"] = []
@@ -199,15 +199,13 @@ def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
         return round(sell_rev - sell_fee - sell_tax - total_cost)
     return total_cost
 
-# 🚀 新增：期貨手續費與期交稅計算函數
 def calc_futures_cost(multiplier, price, lots):
     if multiplier == 200: fee = float(db.get("fee_fut_tx", 50.0))
     elif multiplier == 50: fee = float(db.get("fee_fut_mtx", 25.0))
     elif multiplier == 10: fee = float(db.get("fee_fut_tmf", 10.0))
     elif multiplier in [100, 2000]: fee = float(db.get("fee_fut_stf", 20.0))
-    else: fee = float(db.get("fee_fut_tx", 50.0)) # 自訂乘數預設以大台計價
+    else: fee = float(db.get("fee_fut_tx", 50.0)) 
     
-    # 台灣期交稅率約為十萬分之二 (0.00002)
     tax = price * multiplier * lots * 0.00002
     return (fee * lots) + tax
 
@@ -457,23 +455,16 @@ for t, d in agg.items():
 
 stock_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
 
-# --- 🚀 期貨數據精算 (含手續費與稅金) ---
+# --- 🚀 期貨數據精算 ---
 futures_unrealized = 0
 futures_exposure = 0
 for f in db.get("futures_records", []):
     curr_p = db.get("market_data", {}).get(f["ticker"], {"price": f["price"]})["price"]
-    
-    # 毛利
     gross_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
-    
-    # 扣除一進一出的交易成本
     open_cost = calc_futures_cost(f["multiplier"], f["price"], f["lots"])
     close_cost_est = calc_futures_cost(f["multiplier"], curr_p, f["lots"])
     un_profit = round(gross_profit - open_cost - close_cost_est)
-    
     futures_unrealized += un_profit
-    
-    # 曝險為絕對值 (合約價值)
     exp = curr_p * f["multiplier"] * f["lots"]
     futures_exposure += exp
 
@@ -486,7 +477,6 @@ for r in db.get("futures_realized", []):
     futures_realized_profit += profit
 
 fut_cap = float(db.get("futures_capital", 0.0))
-# 期貨權益數 = 投入本金 + 所有稅後淨損益
 futures_equity = fut_cap + futures_unrealized + futures_realized_profit
 
 # --- 總資金與指標 ---
@@ -497,10 +487,8 @@ oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總淨資產 (NAV)
 total_assets = acc_bal + tot_mv + oth_assets + futures_equity - pld_amt - crd_loan
 
-# 總曝險與槓桿倍數 (正確版：分子不含借貸金額)
 lev_numerator = tot_exp + futures_exposure
 if total_assets > 0: 
     lev_str = f"{lev_numerator / total_assets:.2f}x"
@@ -539,6 +527,41 @@ tab1, tab2, tab_futures, tab3, tab4, tab5 = st.tabs(["📉 股票庫存", "💰 
 
 with tab1:
     if display_data:
+        
+        # ==========================================
+        # 🍩 🚀 新增：資產分佈互動式甜甜圈圖
+        # ==========================================
+        df_pie = pd.DataFrame([{
+            "Stock": f"{item['ticker']} {item['name']}",
+            "Value": item['mv']
+        } for item in display_data if item['mv'] > 0]) # 只有市值大於0的股票才會畫出來
+        
+        if not df_pie.empty:
+            fig = px.pie(df_pie, values='Value', names='Stock', hole=0.65)
+            # 設定滑鼠游標浮上的精緻提示框
+            fig.update_traces(
+                textposition='inside', 
+                textinfo='percent',
+                hovertemplate="<b>%{label}</b><br>市值: $%{value:,.0f}<br>佔比: %{percent}<extra></extra>"
+            )
+            # 設定中間的「總市值」文字與圖表排版
+            fig.update_layout(
+                annotations=[dict(
+                    text=f"TWD<br>{tot_mv:,.0f}", 
+                    x=0.5, y=0.5, 
+                    font_size=22, 
+                    showarrow=False,
+                    font=dict(color="#003366", weight="bold")
+                )],
+                showlegend=True,
+                legend=dict(orientation="v", yanchor="center", y=0.5, xanchor="left", x=1.0),
+                margin=dict(t=10, b=10, l=0, r=0),
+                height=280 # 高度縮減，符合手機螢幕舒適閱讀範圍
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+        # ==========================================
+        
         for item in display_data:
             card_title = f"【{item['ticker']}】{item['name']} ｜ 現價: ${item['curr_p']:,.2f}"
             with st.expander(card_title):
