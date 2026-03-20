@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 import time
 import re
-import extra_streamlit_components as stx  # 👈 引入 Cookie 大師
+import extra_streamlit_components as stx
 
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
@@ -15,7 +15,7 @@ st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon=
 # ==========================================
 # 🍪 Cookie 管理器初始化
 # ==========================================
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager(key="my_cookies")
 
 # ==========================================
 # 🚀 雲端資料庫 Supabase 初始化
@@ -343,8 +343,10 @@ oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
+# 總淨資產 (NAV)
 total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
 
+# 🚀 恢復金融界標準的槓桿倍數公式：總曝險 / 總淨資產
 if total_assets > 0: 
     lev_str = f"{tot_exp / total_assets:.2f}x"
 elif total_assets <= 0 and tot_exp > 0: 
