@@ -3,7 +3,8 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
+import datetime # 修正 datetime 模組引用
 from supabase import create_client, Client
 import time
 import re
@@ -29,17 +30,20 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 Google 登入防護網 (Cookie 終極穩定版)
+# 🔐 Google 登入防護網 (溫柔等待版)
 # ==========================================
 def login_ui():
-    # 0. 【超級關鍵】先確認 Cookie 元件是否已經在前端「甦醒」
+    # 0. 【超級關鍵】先拿取所有的 Cookie 狀態
     cookies = cookie_manager.get_all()
+    
+    # 如果是 None，代表「隱形讀卡機」還在啟動中（需要零點幾秒）！
+    # 我們不顯示登入按鈕，也不強制結束程式，就讓它自然讀取，它讀完會自己觸發重整！
     if cookies is None:
-        # 如果是 None，代表前端還在讀取手機裡的資料。我們必須讓程式暫停，等它讀完！
-        st.stop()
+        st.info("🔄 正在讀取您的安全憑證，請稍候...")
+        return False
         
-    # 甦醒後，試著去拿識別證
-    saved_email = cookies.get("user_email")
+    # 讀卡機啟動完畢，來看看裡面有沒有你的 Email
+    saved_email = cookies.get("user_email") if isinstance(cookies, dict) else None
     
     # 1. 如果 Session 裡有，或是 Cookie 裡有，就直接放行！
     if "user_email" in st.session_state:
@@ -60,8 +64,8 @@ def login_ui():
             cookie_manager.set("user_email", email, max_age=30*24*60*60)
             
             st.query_params.clear()
-            # 🚀 讓子彈飛一會兒！停頓 0.5 秒，確保 Cookie 順利寫入手機瀏覽器再重整畫面，避免被中斷！
-            time.sleep(0.5) 
+            # 讓子彈飛一會兒，確保 Cookie 寫入手機後再重整
+            time.sleep(1) 
             st.rerun()
             return True
         except Exception as e:
@@ -135,12 +139,10 @@ def fetch_price(ticker):
         resp_w = requests.get(url_w, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup_w = BeautifulSoup(resp_w.text, 'html.parser')
         
-        # 抓取股價
         deal_span = soup_w.find('span', class_='deal', attrs={'c-model': 'close'})
         if deal_span and deal_span.text.strip() != "--":
             price = float(deal_span.text.replace(',', ''))
             
-        # 抓取名稱
         name_h3 = soup_w.find('h3', class_='astock-name', attrs={'c-model': 'name'})
         if name_h3 and name_h3.text.strip():
             name = name_h3.text.strip()
@@ -302,7 +304,7 @@ with col_out:
         supabase.auth.sign_out()
         st.session_state.clear()
         cookie_manager.delete("user_email") # 登出時順手把識別證銷毀
-        time.sleep(0.5) # 給系統一點時間把 Cookie 刪乾淨
+        time.sleep(0.5)
         st.rerun()
 
 # --- 核心數據計算 ---
@@ -366,7 +368,7 @@ m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 
 # --- 🚀 每日 14:00 後自動記錄歷史邏輯 ---
 tz_tw = timezone(timedelta(hours=8))
-now_tw = datetime.now(tz_tw)
+now_tw = datetime.datetime.now(tz_tw)
 today_str = now_tw.strftime('%Y-%m-%d')
 
 if "history" not in db: db["history"] = {}
