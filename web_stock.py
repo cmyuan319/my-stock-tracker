@@ -239,7 +239,7 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 按鈕操作列 (簡化版)
+# 按鈕操作列
 c_sp, c_a, c_set, c_up, c_out = st.columns([2.5, 1, 1, 1, 1], gap="small")
 if c_a.button("➕股"): add_stock()
 if c_set.button("⚙️"): show_settings()
@@ -261,8 +261,6 @@ with t1:
         st.plotly_chart(fig, use_container_width=True)
         for s in display_stocks:
             with st.expander(f"【{s['ticker']}】{s['name']} ｜ ${s['curr_p']:,.1f}"):
-                
-                # 💡 依照要求的順序：即時庫存、現值、成本均價、現價、損益、獲利率
                 c1, c2, c3 = st.columns(3)
                 c1.metric("即時庫存", f"{s['shares']:,}")
                 c2.metric("現值", f"${s['mv']:,.0f}")
@@ -281,9 +279,36 @@ with t1:
 with t2:
     if db.get("realized_records"):
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
-            p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
-            with st.expander(f"{r['sell_date']} ｜ {r['ticker']} ｜ 損益: ${p:,}"):
-                st.write(f"股數: {r['shares']:,} | 均進: {r['buy_price']} | 均出: {r['sell_price']}")
+            # 💡 展開詳細的手續費與稅金計算
+            ticker = r["ticker"]
+            shares = r["shares"]
+            bp = r["buy_price"]
+            sp = r["sell_price"]
+            disc = db.get("fee_discount", 6.0) / 10.0
+            
+            buy_cost = shares * bp
+            buy_fee = buy_cost * 0.001425 * disc
+            sell_rev = shares * sp
+            sell_fee = sell_rev * 0.001425 * disc
+            tax_rate = 0.001 if ticker.startswith("00") else 0.003
+            sell_tax = sell_rev * tax_rate
+            
+            total_cost = buy_cost + buy_fee
+            net_profit = round(sell_rev - sell_fee - sell_tax - total_cost)
+            roi = (net_profit / total_cost) * 100 if total_cost > 0 else 0
+            
+            # UI 呈現券商對帳單等級的明細
+            with st.expander(f"{r['sell_date']} ｜ {ticker} ｜ 淨損益: ${net_profit:,}"):
+                st.markdown(f"**交易:** {shares:,}股 ｜ **均進:** ${bp:.2f} ｜ **均出:** ${sp:.2f}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("總成本", f"${round(total_cost):,}")
+                c2.metric("手續費", f"${round(buy_fee + sell_fee):,}")
+                c3.metric("交易稅", f"${round(sell_tax):,}")
+                
+                c4, c5, c6 = st.columns(3)
+                c4.metric("賣出總額", f"${round(sell_rev):,}")
+                c5.metric("淨損益", f"${net_profit:,}")
+                c6.metric("報酬率", f"{roi:.2f}%")
     else: st.info("無賣出紀錄")
 
 with t3:
