@@ -95,7 +95,8 @@ def load_data():
                 "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
                 "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], 
                 "history": {}, "market_data": {}, 
-                "futures_capital": 0.0, "futures_records": [], "futures_realized": [] 
+                "futures_capital": 0.0, "futures_records": [], "futures_realized": [],
+                "fee_fut_tx": 50.0, "fee_fut_mtx": 25.0, "fee_fut_tmf": 10.0, "fee_fut_stf": 20.0
             }
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
@@ -116,11 +117,15 @@ if "db" not in st.session_state:
 
 db = st.session_state.db
 
-# 🚀 終極防呆：確保所有舊用戶的資料庫都有期貨的抽屜
+# 🚀 確保所有用戶都有期貨與手續費的欄位
 if "market_data" not in db: db["market_data"] = {}
 if "futures_capital" not in db: db["futures_capital"] = 0.0
 if "futures_records" not in db: db["futures_records"] = []
 if "futures_realized" not in db: db["futures_realized"] = []
+if "fee_fut_tx" not in db: db["fee_fut_tx"] = 50.0
+if "fee_fut_mtx" not in db: db["fee_fut_mtx"] = 25.0
+if "fee_fut_tmf" not in db: db["fee_fut_tmf"] = 10.0
+if "fee_fut_stf" not in db: db["fee_fut_stf"] = 20.0
 
 # --- 🚀 核心計算與雙棲爬蟲 ---
 def fetch_price(ticker):
@@ -194,12 +199,38 @@ def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
         return round(sell_rev - sell_fee - sell_tax - total_cost)
     return total_cost
 
+# 🚀 新增：期貨手續費與期交稅計算函數
+def calc_futures_cost(multiplier, price, lots):
+    if multiplier == 200: fee = float(db.get("fee_fut_tx", 50.0))
+    elif multiplier == 50: fee = float(db.get("fee_fut_mtx", 25.0))
+    elif multiplier == 10: fee = float(db.get("fee_fut_tmf", 10.0))
+    elif multiplier in [100, 2000]: fee = float(db.get("fee_fut_stf", 20.0))
+    else: fee = float(db.get("fee_fut_tx", 50.0)) # 自訂乘數預設以大台計價
+    
+    # 台灣期交稅率約為十萬分之二 (0.00002)
+    tax = price * multiplier * lots * 0.00002
+    return (fee * lots) + tax
+
 # --- 彈出視窗 (Dialogs) ---
 @st.dialog("⚙️ 全域設定")
 def show_settings_dialog():
-    new_disc = st.number_input("手續費折數", value=float(db.get("fee_discount", 6.0)), step=0.1)
-    if st.button("儲存設定", type="primary", use_container_width=True):
+    st.markdown("#### 📈 現貨設定")
+    new_disc = st.number_input("股票手續費折數", value=float(db.get("fee_discount", 6.0)), step=0.1)
+    
+    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+    st.markdown("#### ⚡ 期貨單邊手續費設定 (元/口)")
+    c1, c2 = st.columns(2)
+    new_fee_tx = c1.number_input("大台 (TX)", value=float(db.get("fee_fut_tx", 50.0)), step=1.0)
+    new_fee_mtx = c2.number_input("小台 (MTX)", value=float(db.get("fee_fut_mtx", 25.0)), step=1.0)
+    new_fee_tmf = c1.number_input("微台 (TMF)", value=float(db.get("fee_fut_tmf", 10.0)), step=1.0)
+    new_fee_stf = c2.number_input("股票期貨 (STF)", value=float(db.get("fee_fut_stf", 20.0)), step=1.0)
+
+    if st.button("💾 儲存設定", type="primary", use_container_width=True):
         db["fee_discount"] = new_disc
+        db["fee_fut_tx"] = new_fee_tx
+        db["fee_fut_mtx"] = new_fee_mtx
+        db["fee_fut_tmf"] = new_fee_tmf
+        db["fee_fut_stf"] = new_fee_stf
         save_data(db)
         st.success("設定已更新！")
         time.sleep(1)
@@ -230,7 +261,6 @@ def show_add_stock_dialog():
 @st.dialog("⚡ 新增期貨部位")
 def show_add_futures_dialog():
     f_date = st.date_input("建立日期")
-    # 這裡把提示文字變成了清爽的灰色 placeholder
     f_ticker = st.text_input("商品代號", placeholder="提示：期貨代號前請加 W (例如 WCDFJ6)").upper()
     
     f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
@@ -266,7 +296,6 @@ def show_add_futures_dialog():
             time.sleep(1)
             st.rerun()
 
-# 🚀 全新功能：修改期貨成本價對話框
 @st.dialog("✏️ 修改期貨成本價")
 def show_edit_futures_cost_dialog(f_id, f_name, current_cost):
     st.markdown(f"### 修改 {f_name} 成本")
@@ -428,24 +457,36 @@ for t, d in agg.items():
 
 stock_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
 
-# --- 🚀 期貨數據計算 ---
+# --- 🚀 期貨數據精算 (含手續費與稅金) ---
 futures_unrealized = 0
 futures_exposure = 0
 for f in db.get("futures_records", []):
     curr_p = db.get("market_data", {}).get(f["ticker"], {"price": f["price"]})["price"]
-    un_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+    
+    # 毛利
+    gross_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+    
+    # 扣除一進一出的交易成本
+    open_cost = calc_futures_cost(f["multiplier"], f["price"], f["lots"])
+    close_cost_est = calc_futures_cost(f["multiplier"], curr_p, f["lots"])
+    un_profit = round(gross_profit - open_cost - close_cost_est)
+    
     futures_unrealized += un_profit
+    
     # 曝險為絕對值 (合約價值)
     exp = curr_p * f["multiplier"] * f["lots"]
     futures_exposure += exp
 
 futures_realized_profit = 0
 for r in db.get("futures_realized", []):
-    profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+    gross_profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+    open_cost = calc_futures_cost(r["multiplier"], r["buy_price"], r["lots"])
+    close_cost = calc_futures_cost(r["multiplier"], r["sell_price"], r["lots"])
+    profit = round(gross_profit - open_cost - close_cost)
     futures_realized_profit += profit
 
 fut_cap = float(db.get("futures_capital", 0.0))
-# 期貨權益數 = 投入本金 + 所有損益
+# 期貨權益數 = 投入本金 + 所有稅後淨損益
 futures_equity = fut_cap + futures_unrealized + futures_realized_profit
 
 # --- 總資金與指標 ---
@@ -456,10 +497,10 @@ oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總淨資產 (NAV) = 銀行餘額 + 股票市值 + 其他 + 期貨權益數 - 質押 - 信貸
+# 總淨資產 (NAV)
 total_assets = acc_bal + tot_mv + oth_assets + futures_equity - pld_amt - crd_loan
 
-# 總曝險與槓桿倍數 (精準版)
+# 總曝險與槓桿倍數 (正確版：分子不含借貸金額)
 lev_numerator = tot_exp + futures_exposure
 if total_assets > 0: 
     lev_str = f"{lev_numerator / total_assets:.2f}x"
@@ -536,14 +577,19 @@ with tab_futures:
     st.markdown(f"### ⚡ 總權益數: ${futures_equity:,.0f}")
     c1, c2, c3 = st.columns(3)
     c1.metric("投入本金", f"${fut_cap:,.0f}")
-    c2.metric("未實現損益", f"${futures_unrealized:,.0f}")
-    c3.metric("已實現損益", f"${futures_realized_profit:,.0f}")
+    c2.metric("淨未實現損益", f"${futures_unrealized:,.0f}")
+    c3.metric("淨已實現損益", f"${futures_realized_profit:,.0f}")
     
     st.markdown("#### 未平倉部位")
     if db.get("futures_records"):
         for f in db["futures_records"]:
             curr_p = db.get("market_data", {}).get(f["ticker"], {"price": f["price"]})["price"]
-            un_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+            
+            gross = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+            open_cost = calc_futures_cost(f["multiplier"], f["price"], f["lots"])
+            close_cost_est = calc_futures_cost(f["multiplier"], curr_p, f["lots"])
+            un_profit = round(gross - open_cost - close_cost_est)
+            
             dir_str = "🔴 多" if f["direction"] == 1 else "🟢 空"
             
             with st.expander(f"【{f['ticker']}】{f['name']} ｜ {dir_str} {f['lots']}口 ｜ 現價: {curr_p}"):
@@ -551,11 +597,9 @@ with tab_futures:
                 fc1.metric("成交價", f"{f['price']}")
                 fc2.metric("現價", f"{curr_p}")
                 fc3.metric("契約乘數", f"{f['multiplier']}")
-                fc4.metric("未實現損益", f"${un_profit:,.0f}")
+                fc4.metric("淨損益(含手續費/稅)", f"${un_profit:,.0f}")
                 
                 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-                
-                # 🚀 這裡新增了「修改成本」與「平倉」的並排按鈕
                 _, btn_edit, btn_close = st.columns([2, 1, 1])
                 if btn_edit.button("✏️ 修改成本", key=f"btn_e_{f['id']}", use_container_width=True):
                     show_edit_futures_cost_dialog(f['id'], f['name'], f['price'])
@@ -568,9 +612,13 @@ with tab_futures:
     st.markdown("#### 已實現紀錄")
     if db.get("futures_realized"):
         for r in sorted(db["futures_realized"], key=lambda x: x["sell_date"], reverse=True):
-            profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+            gross_profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+            open_cost = calc_futures_cost(r["multiplier"], r["buy_price"], r["lots"])
+            close_cost = calc_futures_cost(r["multiplier"], r["sell_price"], r["lots"])
+            net_profit = round(gross_profit - open_cost - close_cost)
+            
             dir_str = "多" if r["direction"] == 1 else "空"
-            with st.expander(f"{r['sell_date']} ｜ {r['name']} ({dir_str}) {r['lots']}口 ｜ 損益: ${profit:,.0f}"):
+            with st.expander(f"{r['sell_date']} ｜ {r['name']} ({dir_str}) {r['lots']}口 ｜ 淨損益: ${net_profit:,.0f}"):
                 rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("進場價", f"{r['buy_price']}")
                 rc2.metric("出場價", f"{r['sell_price']}")
