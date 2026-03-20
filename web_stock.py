@@ -12,6 +12,7 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
+# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
@@ -21,9 +22,9 @@ st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     @media (max-width: 600px) {
-        /* 優化手機版數字大小 */
-        [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
-        [data-testid="stMetricLabel"] { font-size: 0.9rem !important; }
+        [data-testid="stMetric"] { display: inline-block; width: 32% !important; padding: 5px !important; text-align: center; }
+        [data-testid="stMetricValue"] { font-size: 1.2rem !important; }
+        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
         .stButton button { width: 100% !important; padding: 0px !important; font-size: 13px !important; height: 2.5rem !important; }
         .stTabs [data-baseweb="tab"] { padding-left: 10px !important; padding-right: 10px !important; font-size: 14px !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 0rem !important; }
@@ -69,6 +70,8 @@ def login_ui():
             time.sleep(1); st.rerun()
             return True
         except: pass
+    
+    # 💡 主畫面標題固定
     st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 財富自由之路</h1>", unsafe_allow_html=True)
     res = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://reid-stock.streamlit.app/"}})
     st.link_button("🚀 用 Google 帳號登入資料庫", res.url, type="primary", use_container_width=True)
@@ -85,7 +88,7 @@ def load_data():
     defaults = {
         "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, "credit_loan": 0.0, "other_assets": 0.0,
         "buy_records": [], "realized_records": [], "history": {}, "market_data": {},
-        "futures_capital": 0.0 # 💡 這裡代表「期貨權益數」
+        "futures_capital": 0.0
     }
     if len(res.data) == 0:
         supabase.table("user_data").insert({"email": user_email, "data": defaults}).execute()
@@ -190,7 +193,7 @@ def sell_stock(ticker, name):
         db["buy_records"] = [x for x in db["buy_records"] if x["shares"] > 0]
         save_data(db); st.rerun()
 
-# --- 核心計算 (移除期貨明細計算) ---
+# --- 核心計算 (移除期貨計算) ---
 agg = {}
 for r in db["buy_records"]:
     t = r["ticker"]
@@ -212,7 +215,6 @@ for t, d in agg.items():
 
 stock_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db["realized_records"])
 
-# 💡 期貨現在完全簡化為手動輸入的「權益數」
 futures_equity = float(db.get("futures_capital", 0.0))
 
 total_assets = float(db["account_balance"]) + tot_mv + float(db["other_assets"]) + futures_equity - float(db["pledge_amount"]) - float(db["credit_loan"])
@@ -231,8 +233,6 @@ if now_tw.hour >= 14:
 
 # --- 🚀 UI 介面 ---
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
-
-# 🌟 總資產與總獲利強勢回歸首頁！
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${total_profit:,.0f}")
@@ -262,7 +262,8 @@ with t1:
         for s in display_stocks:
             with st.expander(f"【{s['ticker']}】{s['name']} ｜ ${s['curr_p']:,.1f}"):
                 c1, c2, c3 = st.columns(3)
-                c1.metric("損益", f"${s['un_p']:,}"); c2.metric("報酬", f"{s['ret']:.1f}%"); c3.metric("市值", f"${s['mv']/10000:,.1f}萬")
+                # 💡 市值顯示完整金額
+                c1.metric("損益", f"${s['un_p']:,}"); c2.metric("報酬", f"{s['ret']:.1f}%"); c3.metric("市值", f"${s['mv']:,.0f}")
                 c4, c5, c6 = st.columns(3)
                 c4.metric("總股數", f"{s['shares']:,}"); c5.metric("均價", f"${s['avg_cost']:.2f}"); c6.metric("現價", f"${s['curr_p']:.2f}")
                 b1, b2 = st.columns(2)
@@ -287,12 +288,12 @@ with t4:
         st.line_chart(pd.DataFrame([{"日期": k, "資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
 
 with t5:
-    # 🌟 把風險指標安穩地放在這裡
     st.markdown("#### 🛡️ 風險指標")
     rc1, rc2, rc3 = st.columns(3)
+    # 💡 總曝險也顯示完整金額
     rc1.metric("槓桿倍數", lev_str)
     rc2.metric("維持率", f"{m_ratio:.0f}%")
-    rc3.metric("總曝險", f"${tot_exp/10000:,.0f}萬")
+    rc3.metric("總曝險", f"${tot_exp:,.0f}")
     st.divider()
     
     st.markdown("#### ⚖️ 資金手動調整")
@@ -306,4 +307,4 @@ with t5:
         db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = nb, nfc, np, ncl, no
         save_data(db); st.success("已更新！"); time.sleep(1); st.rerun()
 
-st.markdown("<h1 style='text-align: center; color: #003366; font-size: 28px;'>一起發大財 💰</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #003366; font-size: 28px;'>財富自由之路 💰</h1>", unsafe_allow_html=True)
