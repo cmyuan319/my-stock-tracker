@@ -547,11 +547,10 @@ with tab1:
             # 設定中間的「總市值」文字與圖表排版
             fig.update_layout(
                 annotations=[dict(
-                    text=f"TWD<br>{tot_mv:,.0f}", 
+                    text=f"<b>TWD<br>{tot_mv:,.0f}</b>", # 🚀 改用 HTML 的 <b> 標籤來加粗字體
                     x=0.5, y=0.5, 
-                    font_size=22, 
                     showarrow=False,
-                    font=dict(color="#003366", weight="bold")
+                    font=dict(size=22, color="#003366")  # 🚀 把字體大小 (size) 統一收合進來
                 )],
                 showlegend=True,
                 legend=dict(orientation="v", yanchor="center", y=0.5, xanchor="left", x=1.0),
