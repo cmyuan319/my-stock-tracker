@@ -293,6 +293,33 @@ with t1:
                 if b2.button("🛒 賣出", key=f"s_{s['ticker']}", use_container_width=True): show_sell_dialog(s['ticker'], s['name'])
     else: st.info("無現貨。")
 
+# --- 股票已實現分頁 ---
+with t2:
+    if db.get("realized_records"):
+        st.markdown("### 💰 股票已實現損益明細")
+        # 按照賣出日期排序，最新的在上面
+        realized_recs = sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True)
+        
+        for r in realized_recs:
+            # 計算該筆交易的淨損益
+            p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
+            name = db.get("market_data", {}).get(r["ticker"], {"name": r["ticker"]})["name"]
+            
+            # 使用 Expander 摺疊顯示，標題直接呈現損益金額
+            card_title = f"{r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
+            with st.expander(card_title):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("賣出股數", f"{r['shares']:,}")
+                c2.metric("買進單價", f"${r['buy_price']:.2f}")
+                c3.metric("賣出單價", f"${r['sell_price']:.2f}")
+                
+                # 計算報酬率
+                cost_total = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"])
+                roi = (p / cost_total * 100) if cost_total > 0 else 0
+                st.write(f"📊 該筆交易報酬率: **{roi:.2f}%**")
+    else:
+        st.info("目前還沒有任何已實現的股票賣出紀錄。")
+
 with tf:
     st.markdown(f"### ⚡ 期貨權益: ${float(db['futures_capital']) + fut_unrealized + fut_realized:,.0f}")
     for f in db["futures_records"]:
