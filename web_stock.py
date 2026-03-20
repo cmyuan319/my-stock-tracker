@@ -116,7 +116,7 @@ if "db" not in st.session_state:
 
 db = st.session_state.db
 
-# 🚀 終極防呆：確保所有舊用戶的資料庫都有期貨的抽屜，消滅 KeyError！
+# 🚀 終極防呆：確保所有舊用戶的資料庫都有期貨的抽屜
 if "market_data" not in db: db["market_data"] = {}
 if "futures_capital" not in db: db["futures_capital"] = 0.0
 if "futures_records" not in db: db["futures_records"] = []
@@ -230,13 +230,10 @@ def show_add_stock_dialog():
             time.sleep(1)
             st.rerun()
 
-# 🚀 升級：自動抓取期貨名稱的對話框
 @st.dialog("⚡ 新增期貨部位")
 def show_add_futures_dialog():
     f_date = st.date_input("建立日期")
     f_ticker = st.text_input("商品代號", help="提示：期貨代號前面請加上 W (例如：WCDFJ6)。若輸入一般股票代號 (如 2330)，則會抓現貨價格作參考。").upper()
-    
-    # 【已刪除手動輸入名稱的欄位】
     
     f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
     f_dir = 1 if "多" in f_dir_str else -1
@@ -254,10 +251,8 @@ def show_add_futures_dialog():
     
     if st.button("確認新增期貨", type="primary", use_container_width=True):
         if f_ticker:
-            # 按下按鈕時，讓程式去幫你抓名字！
             with st.spinner("雷達掃描商品名稱中..."):
                 p, n = fetch_price(f_ticker)
-                # 如果網路很順利抓到名字就用名字，抓不到就暫時用代號頂替
                 final_name = n if (n and n != f_ticker) else f_ticker 
                 
             next_id = max([r.get("id", 0) for r in db.get("futures_records", [])] + [0]) + 1
@@ -545,13 +540,9 @@ with tab_futures:
                 fc4.metric("未實現損益", f"${un_profit:,.0f}")
                 
                 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-                pc1, pc2, pc3 = st.columns([2, 1, 1])
-                new_p = pc1.number_input("手動更新報價", value=float(curr_p), step=1.0, key=f"fpu_{f['id']}")
-                if pc2.button("💾 更新", key=f"btn_p_{f['id']}", use_container_width=True):
-                    db["market_data"][f["ticker"]] = {"price": new_p, "name": f["name"]}
-                    save_data(db)
-                    st.rerun()
-                if pc3.button("🛒 平倉", key=f"btn_c_{f['id']}", use_container_width=True):
+                # 移除手動報價更新，保留平倉按鈕並靠右對齊
+                _, btn_col = st.columns([3, 1])
+                if btn_col.button("🛒 平倉", key=f"btn_c_{f['id']}", use_container_width=True):
                     show_close_futures_dialog(f['id'], f['name'], f['lots'], f['direction'])
     else:
         st.info("目前沒有未平倉的期貨部位。")
