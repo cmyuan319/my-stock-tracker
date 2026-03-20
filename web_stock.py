@@ -261,11 +261,18 @@ with t1:
         st.plotly_chart(fig, use_container_width=True)
         for s in display_stocks:
             with st.expander(f"【{s['ticker']}】{s['name']} ｜ ${s['curr_p']:,.1f}"):
+                
+                # 💡 依照要求的順序：即時庫存、現值、成本均價、現價、損益、獲利率
                 c1, c2, c3 = st.columns(3)
-                # 💡 市值顯示完整金額
-                c1.metric("損益", f"${s['un_p']:,}"); c2.metric("報酬", f"{s['ret']:.1f}%"); c3.metric("市值", f"${s['mv']:,.0f}")
+                c1.metric("即時庫存", f"{s['shares']:,}")
+                c2.metric("現值", f"${s['mv']:,.0f}")
+                c3.metric("成本均價", f"${s['avg_cost']:.2f}")
+                
                 c4, c5, c6 = st.columns(3)
-                c4.metric("總股數", f"{s['shares']:,}"); c5.metric("均價", f"${s['avg_cost']:.2f}"); c6.metric("現價", f"${s['curr_p']:.2f}")
+                c4.metric("現價", f"${s['curr_p']:.2f}")
+                c5.metric("損益", f"${s['un_p']:,}")
+                c6.metric("獲利率", f"{s['ret']:.2f}%")
+                
                 b1, b2 = st.columns(2)
                 if b1.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
                 if b2.button("🛒賣出", key=f"s_{s['ticker']}", use_container_width=True): sell_stock(s['ticker'], s['name'])
@@ -290,7 +297,6 @@ with t4:
 with t5:
     st.markdown("#### 🛡️ 風險指標")
     rc1, rc2, rc3 = st.columns(3)
-    # 💡 總曝險也顯示完整金額
     rc1.metric("槓桿倍數", lev_str)
     rc2.metric("維持率", f"{m_ratio:.0f}%")
     rc3.metric("總曝險", f"${tot_exp:,.0f}")
