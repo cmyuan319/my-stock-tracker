@@ -17,12 +17,6 @@ st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon=
 # ==========================================
 cookie_manager = stx.CookieManager(key="my_cookies")
 
-# 🚀 緩衝機制：給瀏覽器 0.5 秒的時間把 Cookie 傳給後端
-if "cookie_ready" not in st.session_state:
-    st.session_state["cookie_ready"] = True
-    time.sleep(0.5)
-    st.rerun()
-
 # ==========================================
 # 🚀 雲端資料庫 Supabase 初始化
 # ==========================================
@@ -35,10 +29,17 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 Google 登入防護網 (Cookie 升級版)
+# 🔐 Google 登入防護網 (Cookie 終極穩定版)
 # ==========================================
 def login_ui():
-    saved_email = cookie_manager.get(cookie="user_email")
+    # 0. 【超級關鍵】先確認 Cookie 元件是否已經在前端「甦醒」
+    cookies = cookie_manager.get_all()
+    if cookies is None:
+        # 如果是 None，代表前端還在讀取手機裡的資料。我們必須讓程式暫停，等它讀完！
+        st.stop()
+        
+    # 甦醒後，試著去拿識別證
+    saved_email = cookies.get("user_email")
     
     # 1. 如果 Session 裡有，或是 Cookie 裡有，就直接放行！
     if "user_email" in st.session_state:
@@ -59,6 +60,8 @@ def login_ui():
             cookie_manager.set("user_email", email, max_age=30*24*60*60)
             
             st.query_params.clear()
+            # 🚀 讓子彈飛一會兒！停頓 0.5 秒，確保 Cookie 順利寫入手機瀏覽器再重整畫面，避免被中斷！
+            time.sleep(0.5) 
             st.rerun()
             return True
         except Exception as e:
@@ -137,7 +140,7 @@ def fetch_price(ticker):
         if deal_span and deal_span.text.strip() != "--":
             price = float(deal_span.text.replace(',', ''))
             
-        # 🚀 根據你的精準定位，抓取股票名稱
+        # 抓取名稱
         name_h3 = soup_w.find('h3', class_='astock-name', attrs={'c-model': 'name'})
         if name_h3 and name_h3.text.strip():
             name = name_h3.text.strip()
@@ -299,7 +302,7 @@ with col_out:
         supabase.auth.sign_out()
         st.session_state.clear()
         cookie_manager.delete("user_email") # 登出時順手把識別證銷毀
-        time.sleep(0.5)
+        time.sleep(0.5) # 給系統一點時間把 Cookie 刪乾淨
         st.rerun()
 
 # --- 核心數據計算 ---
