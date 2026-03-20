@@ -127,7 +127,6 @@ def fetch_price(ticker):
     price = 0.0
     name = ticker
     
-    # 1. 玩股網 (自動切換現貨 span 與期貨 div)
     t_lower = ticker.lower()
     urls_to_try = [
         (f"https://www.wantgoo.com/stock/{t_lower}", 'span'),
@@ -151,7 +150,6 @@ def fetch_price(ticker):
         except:
             pass
 
-    # 2. 備用：Google 財經
     if price == 0.0:
         for exchange in ['TPE', 'TWO']:
             if price > 0: break
@@ -164,7 +162,6 @@ def fetch_price(ticker):
                     price = float(p_div.text.replace('$', '').replace(',', ''))
             except: pass
             
-    # 3. 備用：Yahoo 奇摩
     if price == 0.0 or name == ticker:
         try:
             url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
@@ -233,7 +230,8 @@ def show_add_stock_dialog():
 @st.dialog("⚡ 新增期貨部位")
 def show_add_futures_dialog():
     f_date = st.date_input("建立日期")
-    f_ticker = st.text_input("商品代號", placeholder="提示：期貨代號前請加上 W (例如：WCDFJ6)").upper()
+    # 這裡把提示文字變成了清爽的灰色 placeholder
+    f_ticker = st.text_input("商品代號", placeholder="提示：期貨代號前請加 W (例如 WCDFJ6)").upper()
     
     f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
     f_dir = 1 if "多" in f_dir_str else -1
@@ -267,6 +265,22 @@ def show_add_futures_dialog():
             st.success(f"已成功新增部位 {final_name}！")
             time.sleep(1)
             st.rerun()
+
+# 🚀 全新功能：修改期貨成本價對話框
+@st.dialog("✏️ 修改期貨成本價")
+def show_edit_futures_cost_dialog(f_id, f_name, current_cost):
+    st.markdown(f"### 修改 {f_name} 成本")
+    new_cost = st.number_input("新的成交價/成本價", value=float(current_cost), min_value=0.01, step=1.0)
+    
+    if st.button("確認修改", type="primary", use_container_width=True):
+        for r in db["futures_records"]:
+            if r["id"] == f_id:
+                r["price"] = new_cost
+                break
+        save_data(db)
+        st.success("成本價已成功更新！")
+        time.sleep(1)
+        st.rerun()
 
 @st.dialog("🛒 平倉期貨")
 def show_close_futures_dialog(f_id, f_name, f_lots, f_dir):
@@ -540,9 +554,12 @@ with tab_futures:
                 fc4.metric("未實現損益", f"${un_profit:,.0f}")
                 
                 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-                # 移除手動報價更新，保留平倉按鈕並靠右對齊
-                _, btn_col = st.columns([3, 1])
-                if btn_col.button("🛒 平倉", key=f"btn_c_{f['id']}", use_container_width=True):
+                
+                # 🚀 這裡新增了「修改成本」與「平倉」的並排按鈕
+                _, btn_edit, btn_close = st.columns([2, 1, 1])
+                if btn_edit.button("✏️ 修改成本", key=f"btn_e_{f['id']}", use_container_width=True):
+                    show_edit_futures_cost_dialog(f['id'], f['name'], f['price'])
+                if btn_close.button("🛒 平倉", key=f"btn_c_{f['id']}", use_container_width=True):
                     show_close_futures_dialog(f['id'], f['name'], f['lots'], f['direction'])
     else:
         st.info("目前沒有未平倉的期貨部位。")
