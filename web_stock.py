@@ -12,43 +12,46 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (溫和精準版)
+# 📱 🚀 手機版視覺優化 CSS (熱追蹤導彈版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 600px) {
-        /* 1. 【精準鎖定】只針對剛好有 4 個欄位的區塊 (也就是我們的按鈕列) 強制並排 */
-        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4):last-child) {
+        /* 1. 🔥 追蹤導彈：只要這行有「按鈕」，就絕對不准換行，強制平分寬度！ */
+        div[data-testid="stHorizontalBlock"]:has(.stButton) {
+            display: flex !important;
+            flex-direction: row !important;
             flex-wrap: nowrap !important;
             gap: 5px !important;
         }
-        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4):last-child) > div[data-testid="column"] {
+        div[data-testid="stHorizontalBlock"]:has(.stButton) > div[data-testid="column"] {
+            flex: 1 1 0% !important;
+            width: auto !important;
             min-width: 0 !important;
-            width: 25% !important;
+            padding: 0 !important;
         }
-
-        /* 2. 把按鈕變成精緻的小正方形 */
+        
+        /* 2. 讓按鈕變成完美的觸控方塊 */
         .stButton button { 
             padding: 0px !important; 
-            font-size: 20px !important; 
+            font-size: 16px !important; 
             height: 45px !important;
             width: 100% !important;
         }
 
-        /* 3. 解決數字被截斷的問題：允許超長數字換行或完整顯示 */
+        /* 3. 確保總曝險等大數字，不受按鈕規則影響，完整顯示不被切斷 */
         [data-testid="stMetricValue"] {
-            font-size: 1.8rem !important; /* 恢復大數字的氣勢 */
+            font-size: 1.8rem !important; 
             white-space: normal !important; 
             word-wrap: break-word !important;
         }
         
-        /* 4. 縮減不必要的留白 */
+        /* 4. 縮減手機版的無效留白 */
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 0rem !important; 
@@ -262,17 +265,15 @@ if now_tw.hour >= 14:
 
 # --- 🚀 UI 介面 ---
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
-
-# 💡 總淨資產與總獲利，放任它們在手機上自然排列，字體大且不被切斷
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 按鈕操作列 (精準 CSS 鎖定這 4 個欄位)
+# 💡 按鈕操作列 (熱追蹤導彈會精準鎖定這裡，強制並行)
 c_a, c_set, c_up, c_out = st.columns(4)
-if c_a.button("➕", help="新增股票", use_container_width=True): add_stock()
+if c_a.button("➕股", help="新增股票", use_container_width=True): add_stock()
 if c_set.button("⚙️", help="設定", use_container_width=True): show_settings()
 if c_up.button("🔄", help="更新報價", use_container_width=True):
     with st.spinner("更新中..."):
@@ -302,6 +303,7 @@ with t1:
                 c5.metric("損益", f"${s['un_p']:,}")
                 c6.metric("獲利率", f"{s['ret']:.2f}%")
                 
+                # 💡 這裡的明細與賣出按鈕也會受惠於熱追蹤，變成完美的左右平分！
                 b1, b2 = st.columns(2)
                 if b1.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
                 if b2.button("🛒賣出", key=f"s_{s['ticker']}", use_container_width=True): sell_stock(s['ticker'], s['name'])
@@ -348,7 +350,7 @@ with t4:
 with t5:
     st.markdown("#### 🛡️ 風險指標")
     rc1, rc2, rc3 = st.columns(3)
-    # 💡 放任它們在手機上垂直排列，確保千萬等級的曝險數字能完整顯示
+    # 💡 保障條款發揮作用，這裡不會被強迫同行，安全度過換行危機！
     rc1.metric("槓桿倍數", lev_str)
     rc2.metric("維持率", f"{m_ratio:.0f}%")
     rc3.metric("總曝險", f"${tot_exp:,.0f}")
@@ -361,6 +363,8 @@ with t5:
     np = c1.number_input("質押金額", value=float(db["pledge_amount"]))
     ncl = c2.number_input("信貸金額", value=float(db["credit_loan"]))
     no = st.number_input("其他資產", value=float(db["other_assets"]))
+    
+    # 這裡的儲存按鈕因為不是在橫向區塊內，所以不受影響，保持滿版大按鈕！
     if st.button("💾 確認更新資料庫", type="primary", use_container_width=True):
         db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = nb, nfc, np, ncl, no
         save_data(db); st.success("已更新！"); time.sleep(1); st.rerun()
