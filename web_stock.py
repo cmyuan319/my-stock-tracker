@@ -233,7 +233,7 @@ def show_add_stock_dialog():
 @st.dialog("⚡ 新增期貨部位")
 def show_add_futures_dialog():
     f_date = st.date_input("建立日期")
-    f_ticker = st.text_input("商品代號", help="提示：期貨代號前面請加上 W (例如：WCDFJ6)。若輸入一般股票代號 (如 2330)，則會抓現貨價格作參考。").upper()
+    f_ticker = st.text_input("商品代號", help="提示：期貨代號前面請加上 W (例如：WCDFJ6)。").upper()
     
     f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
     f_dir = 1 if "多" in f_dir_str else -1
