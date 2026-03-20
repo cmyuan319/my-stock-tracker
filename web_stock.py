@@ -7,9 +7,19 @@ from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 import time
 import re
+import extra_streamlit_components as stx  # 👈 引入 Cookie 大師
 
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
+
+# ==========================================
+# 🍪 Cookie 管理器初始化
+# ==========================================
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 # ==========================================
 # 🚀 雲端資料庫 Supabase 初始化
@@ -23,17 +33,30 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 Google 登入防護網
+# 🔐 Google 登入防護網 (Cookie 升級版)
 # ==========================================
 def login_ui():
+    # 0. 偷偷去瀏覽器翻找有沒有 30 天內的登入識別證
+    saved_email = cookie_manager.get(cookie="user_email")
+    
+    # 1. 如果 Session 裡有，或是 Cookie 裡有，就直接放行！
     if "user_email" in st.session_state:
         return True
+    elif saved_email:
+        st.session_state["user_email"] = saved_email
+        return True
 
+    # 2. 攔截 Google 登入成功後傳回來的授權碼
     if "code" in st.query_params:
         try:
             code = st.query_params["code"]
             res = supabase.auth.exchange_code_for_session({"auth_code": code})
-            st.session_state["user_email"] = res.user.email
+            email = res.user.email
+            st.session_state["user_email"] = email
+            
+            # 🍪 發給瀏覽器一張期限 30 天的識別證！
+            cookie_manager.set("user_email", email, max_age=30*24*60*60)
+            
             st.query_params.clear()
             st.rerun()
             return True
@@ -41,6 +64,7 @@ def login_ui():
             st.error("登入失敗或授權碼已過期，請重新嘗試。")
             st.query_params.clear()
 
+    # 3. 顯示登入大門
     st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 個人資產紀錄網</h1>", unsafe_allow_html=True)
     st.write("")
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -102,7 +126,6 @@ def fetch_price(ticker):
     price = 0.0
     name = ticker
     
-    # 1. 引擎 A：玩股網 Wantgoo (第一優先)
     try:
         url_w = f"https://www.wantgoo.com/stock/{ticker}"
         resp_w = requests.get(url_w, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -120,7 +143,6 @@ def fetch_price(ticker):
     except:
         pass
 
-    # 2. 引擎 B：Google 財經 (備用雷達)
     if price == 0.0:
         for exchange in ['TPE', 'TWO']:
             if price > 0: break
@@ -133,7 +155,6 @@ def fetch_price(ticker):
                     price = float(p_div.text.replace('$', '').replace(',', ''))
             except: pass
             
-    # 3. 引擎 C：Yahoo 奇摩股市 (終極備用)
     if price == 0.0 or name == ticker:
         try:
             url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
@@ -275,6 +296,8 @@ with col_out:
     if st.button("🚪", help="登出", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.clear()
+        cookie_manager.delete("user_email") # 登出時順手把識別證銷毀
+        time.sleep(0.5)
         st.rerun()
 
 # --- 核心數據計算 ---
@@ -324,10 +347,8 @@ oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總淨資產 (NAV)
 total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
 
-# 🚀 恢復金融界標準的槓桿倍數公式：總曝險 / 總淨資產
 if total_assets > 0: 
     lev_str = f"{tot_exp / total_assets:.2f}x"
 elif total_assets <= 0 and tot_exp > 0: 
