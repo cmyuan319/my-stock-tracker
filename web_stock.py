@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 import time
+import re
 
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="個人資產紀錄網", layout="wide", page_icon="📈")
@@ -71,12 +72,14 @@ def load_data():
         if len(response.data) == 0:
             default_db = {
                 "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
-                "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], "history": {}
+                "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], 
+                "history": {}, "market_data": {}
             }
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
         else:
             data = response.data[0]["data"]
+            if "market_data" not in data: data["market_data"] = {}
             return data
     except Exception as e:
         st.error(f"資料庫連線異常: {e}")
@@ -92,21 +95,27 @@ if "db" not in st.session_state:
     st.session_state.db = load_data()
 
 db = st.session_state.db
+# 確保舊用戶也有這個字典
+if "market_data" not in db: db["market_data"] = {}
 
-# --- 核心計算與雙引擎爬蟲 ---
-@st.cache_data(ttl=60)
+# --- 核心計算與雙引擎爬蟲 (移除自動快取，改為純函數) ---
 def fetch_price(ticker):
     price = 0.0
     name = ticker
-    try:
-        url_g = f"https://www.google.com/finance/quote/{ticker}:TPE?hl=zh-TW"
-        resp_g = requests.get(url_g, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        soup_g = BeautifulSoup(resp_g.text, 'html.parser')
-        p_div = soup_g.find('div', class_='YMlKec fxKbKc')
-        if p_div: 
-            price = float(p_div.text.replace('$', '').replace(',', ''))
-    except: pass
-        
+    
+    # 1. Google 財經 (先試 TPE，失敗切換 TWO)
+    for exchange in ['TPE', 'TWO']:
+        if price > 0: break
+        try:
+            url_g = f"https://www.google.com/finance/quote/{ticker}:{exchange}?hl=zh-TW"
+            resp_g = requests.get(url_g, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup_g = BeautifulSoup(resp_g.text, 'html.parser')
+            p_div = soup_g.find('div', class_='YMlKec fxKbKc')
+            if p_div: 
+                price = float(p_div.text.replace('$', '').replace(',', ''))
+        except: pass
+            
+    # 2. Yahoo 奇摩股市 (抓名稱 + 終極備用股價)
     try:
         url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
         resp_y = requests.get(url_y, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -114,9 +123,14 @@ def fetch_price(ticker):
         title_tag = soup_y.find('title')
         if title_tag:
             extracted_name = title_tag.text.split('(')[0].strip()
-            if "Yahoo" not in extracted_name:
-                name = extracted_name
+            if "Yahoo" not in extracted_name: name = extracted_name
+        
+        # 終極備用雷達
+        if price == 0.0:
+            match = re.search(r'"regularMarketPrice":([0-9.]+)', resp_y.text)
+            if match: price = float(match.group(1))
     except: pass
+        
     return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
@@ -152,6 +166,11 @@ def show_add_stock_dialog():
     in_price = st.number_input("買進單價", min_value=0.01, step=1.0)
     if st.button("確認新增", type="primary", use_container_width=True):
         if in_ticker:
+            # 第一次新增時，順便抓一下股價和名稱存起來
+            if in_ticker not in db["market_data"]:
+                p, n = fetch_price(in_ticker)
+                db["market_data"][in_ticker] = {"price": p, "name": n}
+                
             next_id = max([r.get("id", 0) for r in db.get("buy_records", [])] + [0]) + 1
             if "buy_records" not in db: db["buy_records"] = []
             db["buy_records"].append({
@@ -193,8 +212,11 @@ def show_sell_dialog(ticker, name):
     st.info(f"目前總庫存: **{tot_s:,}** 股")
     sell_date = st.date_input("賣出日期")
     sell_shares = st.number_input("賣出股數", min_value=1, max_value=tot_s, step=1000)
-    current_p, _ = fetch_price(ticker)
-    sell_price = st.number_input("賣出單價", value=current_p, min_value=0.01, step=1.0)
+    
+    # 直接讀取資料庫裡的現價，不另外連網爬蟲
+    current_p = db.get("market_data", {}).get(ticker, {"price": 0.0})["price"]
+    sell_price = st.number_input("賣出單價", value=float(current_p), min_value=0.01, step=1.0)
+    
     if st.button("確認賣出", type="primary", use_container_width=True):
         rem = sell_shares
         target_records = sorted([r for r in db.get("buy_records", []) if r["ticker"] == ticker], key=lambda x: x["date"])
@@ -214,12 +236,25 @@ def show_sell_dialog(ticker, name):
         time.sleep(1)
         st.rerun()
 
-# --- 頂部操作列 (移除匯入按鈕) ---
-col_space, col_add, col_set, col_out = st.columns([7, 1, 1, 1])
+# --- 頂部操作列 (加入手動更新按鈕) ---
+col_space, col_add, col_set, col_update, col_out = st.columns([6, 1, 1, 1, 1])
 with col_add:
     if st.button("➕", help="新增股票", use_container_width=True): show_add_stock_dialog()
 with col_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings_dialog()
+with col_update:
+    if st.button("🔄", help="手動更新最新股價", use_container_width=True):
+        with st.spinner("雷達掃描股價中..."):
+            # 找出所有目前持有與賣出過的唯一代號
+            unique_tickers = set([r["ticker"] for r in db.get("buy_records", [])] + [r["ticker"] for r in db.get("realized_records", [])])
+            for t in unique_tickers:
+                p, n = fetch_price(t)
+                if p > 0 or n != t:
+                    db["market_data"][t] = {"price": p, "name": n}
+            save_data(db)
+        st.success("更新完成！")
+        time.sleep(0.5)
+        st.rerun()
 with col_out:
     if st.button("🚪", help="登出", use_container_width=True):
         supabase.auth.sign_out()
@@ -241,7 +276,11 @@ for t, d in agg.items():
     shares = d["shares"]
     if shares == 0: continue
     avg_cost = d["cost_basis"] / shares
-    curr_p, name = fetch_price(t)
+    
+    # 瞬間讀取！不再等待爬蟲
+    market_info = db.get("market_data", {}).get(t, {"price": 0.0, "name": t})
+    curr_p = market_info["price"]
+    name = market_info["name"]
     
     mv = shares * curr_p
     tot_mv += mv
@@ -264,13 +303,12 @@ for t, d in agg.items():
 tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
 tot_profit = tot_unrealized + tot_realized
 
-# 資金數據與公式 (加入其他資產)
+# 資金數據與公式
 acc_bal = float(db.get("account_balance", 0.0))
 oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總資產計算更新
 total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
 
 if total_assets > 0: lev_str = f"{tot_exp / total_assets:.2f}x"
@@ -278,7 +316,7 @@ elif total_assets <= 0 and tot_exp > 0: lev_str = "∞"
 else: lev_str = "0.0x"
 m_ratio = (tot_mv / pld_amt * 100) if pld_amt > 0 else 0
 
-# --- 🚀 每日 14:00 後自動記錄邏輯 ---
+# --- 🚀 每日 14:00 後自動記錄歷史邏輯 ---
 tz_tw = timezone(timedelta(hours=8))
 now_tw = datetime.now(tz_tw)
 today_str = now_tw.strftime('%Y-%m-%d')
@@ -330,7 +368,8 @@ with tab2:
     if db.get("realized_records"):
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
             p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
-            _, name = fetch_price(r["ticker"])
+            # 瞬間讀取名稱，不再爬蟲
+            name = db.get("market_data", {}).get(r["ticker"], {"name": r["ticker"]})["name"]
             card_title = f"{r['sell_date']} ｜ {r['ticker']} {name} ｜ 損益: ${p:,}"
             with st.expander(card_title):
                 c1, c2, c3 = st.columns(3)
@@ -366,7 +405,6 @@ with tab5:
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     
     st.markdown("#### 💵 資金編輯區")
-    # 將欄位擴充為 4 個
     ec1, ec2, ec3, ec4 = st.columns(4)
     new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
     new_oth = ec2.number_input("其他資產", value=int(oth_assets), step=10000)
@@ -384,4 +422,4 @@ with tab5:
         st.rerun()
 
 st.write("") 
-st.markdown("<h1 style='text-align: center; color: #003366; font-style: italic; font-weight: bold; font-size: 36px;'>躺在指數的道路上耍廢 🛋️</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #CC0000; font-style: italic; font-weight: bold; font-size: 36px;'>一起發大財 💰</h1>", unsafe_allow_html=True)
