@@ -12,65 +12,55 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-# 💡 網頁名稱固定
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (隱形標記終極破壞版)
+# 📱 🚀 手機版視覺優化 CSS (暴力並排防彈版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 1. 🔥 追蹤 4 顆按鈕的隱形標記：強制平分成 4 等份，絕對不換行！ */
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) {
+        /* 🔥 無視任何阻礙，強制所有分欄區塊在手機上「橫向並排」 */
+        div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 6px !important;
+            gap: 5px !important;
         }
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) > div[data-testid="column"] {
-            flex: 1 1 25% !important;
-            width: 25% !important;
+        
+        /* 強制平分寬度，絕對不准擠成兩行 */
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 0% !important;
+            width: auto !important;
             min-width: 0 !important;
             padding: 0 !important;
         }
-        /* 將 4 個按鈕變成觸控友善的完美正方形 */
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) button { 
+        
+        /* 將按鈕化身為券商 APP 的完美觸控方塊 */
+        .stButton button { 
             padding: 0px !important; 
             font-size: 20px !important; 
             height: 42px !important;
             width: 100% !important;
-        }
-
-        /* 2. 🔥 追蹤 2 顆按鈕 (明細/賣出) 的隱形標記：強制平分成 2 等份！ */
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) {
             display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 6px !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) > div[data-testid="column"] {
-            flex: 1 1 50% !important;
-            width: 50% !important;
-            min-width: 0 !important;
-            padding: 0 !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) button {
-            width: 100% !important;
-            height: 38px !important;
-            font-size: 14px !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
-        /* 3. 確保總曝險等大數字完整顯示，不會變成 ... */
+        /* 確保總曝險的千萬級數字自動換行，不被切斷 */
         [data-testid="stMetricValue"] {
-            font-size: 1.6rem !important; 
+            font-size: 1.4rem !important; 
             white-space: normal !important; 
             word-wrap: break-word !important;
+            line-height: 1.1 !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 11px !important;
         }
         
-        /* 4. 縮減手機版的無效留白 */
+        /* 縮減手機版的無效留白 */
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 0rem !important; 
@@ -290,10 +280,9 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 放入「隱形標記」，保證接下來這 4 個按鈕一定變成一橫列！
+# 💡 最純粹的圖示按鈕
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
-    st.markdown('<div class="four-btn-marker" style="display:none;"></div>', unsafe_allow_html=True)
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
 with c_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings()
@@ -327,10 +316,8 @@ with t1:
                 c5.metric("損益", f"${s['un_p']:,}")
                 c6.metric("獲利率", f"{s['ret']:.2f}%")
                 
-                # 💡 放入「隱形標記」，讓這 2 個按鈕也完美並行！
                 b1, b2 = st.columns(2)
                 with b1:
-                    st.markdown('<div class="two-btn-marker" style="display:none;"></div>', unsafe_allow_html=True)
                     if st.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
                 with b2:
                     if st.button("🛒賣出", key=f"s_{s['ticker']}", use_container_width=True): sell_stock(s['ticker'], s['name'])
