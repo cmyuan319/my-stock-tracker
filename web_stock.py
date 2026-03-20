@@ -71,12 +71,13 @@ def load_data():
         if len(response.data) == 0:
             default_db = {
                 "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
-                "credit_loan": 0.0, "buy_records": [], "realized_records": [], "history": {}
+                "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], "history": {}
             }
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
         else:
-            return response.data[0]["data"]
+            data = response.data[0]["data"]
+            return data
     except Exception as e:
         st.error(f"資料庫連線異常: {e}")
         return {}
@@ -119,7 +120,7 @@ def fetch_price(ticker):
     return price, name
 
 def calc_cost_profit(ticker, shares, buy_price, sell_price=None):
-    disc = db["fee_discount"] / 10.0
+    disc = db.get("fee_discount", 6.0) / 10.0
     buy_cost = shares * buy_price
     buy_fee = buy_cost * 0.001425 * disc
     total_cost = buy_cost + buy_fee
@@ -151,7 +152,8 @@ def show_add_stock_dialog():
     in_price = st.number_input("買進單價", min_value=0.01, step=1.0)
     if st.button("確認新增", type="primary", use_container_width=True):
         if in_ticker:
-            next_id = max([r.get("id", 0) for r in db["buy_records"]] + [0]) + 1
+            next_id = max([r.get("id", 0) for r in db.get("buy_records", [])] + [0]) + 1
+            if "buy_records" not in db: db["buy_records"] = []
             db["buy_records"].append({
                 "id": next_id, "date": str(in_date), "ticker": in_ticker, 
                 "shares": in_shares, "price": in_price
@@ -164,7 +166,7 @@ def show_add_stock_dialog():
 @st.dialog("🔍 逐筆買進明細與管理")
 def show_details_dialog(ticker, name):
     st.markdown(f"### {ticker} {name}")
-    records = sorted([r for r in db["buy_records"] if r["ticker"] == ticker], key=lambda x: x["date"], reverse=True)
+    records = sorted([r for r in db.get("buy_records", []) if r["ticker"] == ticker], key=lambda x: x["date"], reverse=True)
     if not records:
         st.warning("目前無庫存紀錄。")
         return
@@ -187,7 +189,7 @@ def show_details_dialog(ticker, name):
 @st.dialog("🛒 賣出股票")
 def show_sell_dialog(ticker, name):
     st.markdown(f"### 賣出 {ticker} {name}")
-    tot_s = sum(r["shares"] for r in db["buy_records"] if r["ticker"] == ticker)
+    tot_s = sum(r["shares"] for r in db.get("buy_records", []) if r["ticker"] == ticker)
     st.info(f"目前總庫存: **{tot_s:,}** 股")
     sell_date = st.date_input("賣出日期")
     sell_shares = st.number_input("賣出股數", min_value=1, max_value=tot_s, step=1000)
@@ -195,7 +197,8 @@ def show_sell_dialog(ticker, name):
     sell_price = st.number_input("賣出單價", value=current_p, min_value=0.01, step=1.0)
     if st.button("確認賣出", type="primary", use_container_width=True):
         rem = sell_shares
-        target_records = sorted([r for r in db["buy_records"] if r["ticker"] == ticker], key=lambda x: x["date"])
+        target_records = sorted([r for r in db.get("buy_records", []) if r["ticker"] == ticker], key=lambda x: x["date"])
+        if "realized_records" not in db: db["realized_records"] = []
         for r in target_records:
             if rem <= 0: break
             take = min(r["shares"], rem)
@@ -211,38 +214,12 @@ def show_sell_dialog(ticker, name):
         time.sleep(1)
         st.rerun()
 
-@st.dialog("📥 匯入舊版資料")
-def show_import_dialog():
-    st.info("請到您原本的 Google 試算表，複製「A1 儲存格」裡密密麻麻的文字，貼在下方並按下匯入即可。")
-    old_data_str = st.text_area("貼上舊資料", height=150)
-    if st.button("確認匯入", type="primary", use_container_width=True):
-        if old_data_str:
-            try:
-                parsed_data = json.loads(old_data_str)
-                # 確保新欄位都在
-                for k in ["account_balance", "credit_loan", "pledge_amount"]:
-                    if k not in parsed_data: parsed_data[k] = 0.0
-                if "history" not in parsed_data: parsed_data["history"] = {}
-                
-                # 覆寫並存檔至 Supabase
-                st.session_state.db = parsed_data
-                save_data(parsed_data)
-                st.success("🎉 舊資料無痛轉移成功！")
-                time.sleep(1)
-                st.rerun()
-            except json.JSONDecodeError:
-                st.error("格式錯誤！請確認您有複製到完整的 A1 儲存格內容（開頭是 { ，結尾是 } ）。")
-            except Exception as e:
-                st.error(f"發生未知的錯誤: {e}")
-
-# --- 頂部操作列 (移除 Email，加入匯入按鈕) ---
-col_space, col_add, col_set, col_in, col_out = st.columns([6, 1, 1, 1, 1])
+# --- 頂部操作列 (移除匯入按鈕) ---
+col_space, col_add, col_set, col_out = st.columns([7, 1, 1, 1])
 with col_add:
     if st.button("➕", help="新增股票", use_container_width=True): show_add_stock_dialog()
 with col_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings_dialog()
-with col_in:
-    if st.button("📥", help="匯入舊資料", use_container_width=True): show_import_dialog()
 with col_out:
     if st.button("🚪", help="登出", use_container_width=True):
         supabase.auth.sign_out()
@@ -251,7 +228,7 @@ with col_out:
 
 # --- 核心數據計算 ---
 agg = {}
-for r in db["buy_records"]:
+for r in db.get("buy_records", []):
     t = r["ticker"]
     if t not in agg: agg[t] = {"shares": 0, "cost_basis": 0}
     agg[t]["shares"] += r["shares"]
@@ -273,7 +250,7 @@ for t, d in agg.items():
         
     cost = calc_cost_profit(t, shares, avg_cost)
     tax_rate = 0.001 if t.startswith("00") else 0.003
-    sell_fee = mv * 0.001425 * (db["fee_discount"] / 10.0)
+    sell_fee = mv * 0.001425 * (db.get("fee_discount", 6.0) / 10.0)
     net_v = mv - sell_fee - (mv * tax_rate)
     un_profit = round(net_v - cost)
     tot_unrealized += un_profit
@@ -284,15 +261,18 @@ for t, d in agg.items():
         "curr_p": curr_p, "mv": mv, "un_profit": un_profit, "ret_rate": ret_rate
     })
 
-tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db["realized_records"])
+tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
 tot_profit = tot_unrealized + tot_realized
 
-# 資金數據與公式
+# 資金數據與公式 (加入其他資產)
 acc_bal = float(db.get("account_balance", 0.0))
+oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-total_assets = acc_bal + tot_mv - pld_amt - crd_loan
+# 總資產計算更新
+total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
+
 if total_assets > 0: lev_str = f"{tot_exp / total_assets:.2f}x"
 elif total_assets <= 0 and tot_exp > 0: lev_str = "∞"
 else: lev_str = "0.0x"
@@ -303,6 +283,7 @@ tz_tw = timezone(timedelta(hours=8))
 now_tw = datetime.now(tz_tw)
 today_str = now_tw.strftime('%Y-%m-%d')
 
+if "history" not in db: db["history"] = {}
 for k, v in db["history"].items():
     if isinstance(v, (int, float)): db["history"][k] = {"profit": v, "assets": total_assets}
 
@@ -346,7 +327,7 @@ with tab1:
         st.info("目前沒有未實現的庫存喔！快點擊上方 ➕ 新增吧。")
 
 with tab2:
-    if db["realized_records"]:
+    if db.get("realized_records"):
         for r in sorted(db["realized_records"], key=lambda x: x["sell_date"], reverse=True):
             p = calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"])
             _, name = fetch_price(r["ticker"])
@@ -361,7 +342,7 @@ with tab2:
 
 with tab3:
     st.markdown("### 📈 每日總獲利走勢")
-    if db["history"]:
+    if db.get("history"):
         df_profit = pd.DataFrame([{"日期": k, "總獲利": v["profit"]} for k, v in db["history"].items()])
         st.line_chart(df_profit.set_index("日期"))
     else:
@@ -369,7 +350,7 @@ with tab3:
 
 with tab4:
     st.markdown("### 📊 每日總資產走勢")
-    if db["history"]:
+    if db.get("history"):
         df_assets = pd.DataFrame([{"日期": k, "總資產": v["assets"]} for k, v in db["history"].items()])
         st.line_chart(df_assets.set_index("日期"))
     else:
@@ -385,13 +366,16 @@ with tab5:
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     
     st.markdown("#### 💵 資金編輯區")
-    ec1, ec2, ec3 = st.columns(3)
+    # 將欄位擴充為 4 個
+    ec1, ec2, ec3, ec4 = st.columns(4)
     new_bal = ec1.number_input("帳戶餘額", value=int(acc_bal), step=10000)
-    new_pld = ec2.number_input("質押金額", value=int(pld_amt), step=10000)
-    new_crd = ec3.number_input("信貸金額", value=int(crd_loan), step=10000)
+    new_oth = ec2.number_input("其他資產", value=int(oth_assets), step=10000)
+    new_pld = ec3.number_input("質押金額", value=int(pld_amt), step=10000)
+    new_crd = ec4.number_input("信貸金額", value=int(crd_loan), step=10000)
     
     if st.button("💾 更新資金數據", type="primary"):
         db["account_balance"] = float(new_bal)
+        db["other_assets"] = float(new_oth)
         db["pledge_amount"] = float(new_pld)
         db["credit_loan"] = float(new_crd)
         save_data(db)
