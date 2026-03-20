@@ -16,68 +16,76 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (隱形標記終極破壞版)
+# 📱 🚀 手機版視覺優化 CSS (雙重防護壓制版)
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 1. 🔥 追蹤 4 顆按鈕的隱形標記：強制平分成 4 等份，絕對不換行！ */
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) {
-            display: flex !important;
-            flex-direction: row !important;
+        /* --- ⚔️ 4 按鈕行列壓制 (強制 25% 寬度) --- */
+        /* 第一層防護：結構鎖定 */
+        div.block-container > div[data-testid="stVerticalBlock"] > div.element-container:nth-child(4) div[data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
-            gap: 6px !important;
+            gap: 4px !important;
         }
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) > div[data-testid="column"] {
+        div.block-container > div[data-testid="stVerticalBlock"] > div.element-container:nth-child(4) div[data-testid="column"] {
+            max-width: 25% !important; /* 核心壓制：絕對不准超過 25% */
             flex: 1 1 25% !important;
-            width: 25% !important;
             min-width: 0 !important;
             padding: 0 !important;
         }
-        /* 將 4 個按鈕變成觸控友善的完美正方形 */
-        div[data-testid="stHorizontalBlock"]:has(.four-btn-marker) button { 
+
+        /* 第二層防護：標記鎖定 */
+        div[data-testid="stHorizontalBlock"]:has(.four-btn-anchor) {
+            flex-wrap: nowrap !important;
+            gap: 4px !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.four-btn-anchor) > div[data-testid="column"] {
+            max-width: 25% !important;
+            flex: 1 1 25% !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* --- ⚔️ 2 按鈕行列壓制 (強制 50% 寬度) --- */
+        div[data-testid="stHorizontalBlock"]:has(.two-btn-anchor) {
+            flex-wrap: nowrap !important;
+            gap: 6px !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.two-btn-anchor) > div[data-testid="column"] {
+            max-width: 50% !important;
+            flex: 1 1 50% !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* --- 統一按鈕美化 --- */
+        .stButton button { 
             padding: 0px !important; 
             font-size: 20px !important; 
             height: 42px !important;
             width: 100% !important;
-        }
-
-        /* 2. 🔥 追蹤 2 顆按鈕 (明細/賣出) 的隱形標記：強制平分成 2 等份！ */
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) {
             display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 6px !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) > div[data-testid="column"] {
-            flex: 1 1 50% !important;
-            width: 50% !important;
-            min-width: 0 !important;
-            padding: 0 !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.two-btn-marker) button {
-            width: 100% !important;
-            height: 38px !important;
-            font-size: 14px !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
-        /* 3. 確保總曝險等大數字完整顯示，不會變成 ... */
+        /* --- 數字完整顯示不截斷 --- */
         [data-testid="stMetricValue"] {
             font-size: 1.6rem !important; 
             white-space: normal !important; 
             word-wrap: break-word !important;
         }
         
-        /* 4. 縮減手機版的無效留白 */
+        /* --- 縮減無效留白 --- */
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 0rem !important; 
         }
         .stTabs [data-baseweb="tab"] { 
-            padding-left: 5px !important; 
-            padding-right: 5px !important; 
+            padding-left: 6px !important; 
+            padding-right: 6px !important; 
             font-size: 14px !important; 
         }
     }
@@ -290,10 +298,10 @@ m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 放入「隱形標記」，保證接下來這 4 個按鈕一定變成一橫列！
+# 💡 放入「隱形標記」，這四顆按鈕再也無法被拆散！
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
-    st.markdown('<div class="four-btn-marker"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="four-btn-anchor" style="display:none;"></div>', unsafe_allow_html=True)
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
 with c_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings()
@@ -327,10 +335,10 @@ with t1:
                 c5.metric("損益", f"${s['un_p']:,}")
                 c6.metric("獲利率", f"{s['ret']:.2f}%")
                 
-                # 💡 放入「隱形標記」，讓這 2 個按鈕也完美並行！
+                # 💡 這 2 個按鈕也加上完美對齊的魔法！
                 b1, b2 = st.columns(2)
                 with b1:
-                    st.markdown('<div class="two-btn-marker"></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="two-btn-anchor" style="display:none;"></div>', unsafe_allow_html=True)
                     if st.button("🔍明細", key=f"d_{s['ticker']}", use_container_width=True): show_details(s['ticker'], s['name'])
                 with b2:
                     if st.button("🛒賣出", key=f"s_{s['ticker']}", use_container_width=True): sell_stock(s['ticker'], s['name'])
@@ -390,7 +398,6 @@ with t5:
     ncl = c2.number_input("信貸金額", value=float(db["credit_loan"]))
     no = st.number_input("其他資產", value=float(db["other_assets"]))
     
-    # 這裡的儲存按鈕因為沒有隱形標記，所以會保持正常大按鈕狀態！
     if st.button("💾 確認更新資料庫", type="primary", use_container_width=True):
         db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = nb, nfc, np, ncl, no
         save_data(db); st.success("已更新！"); time.sleep(1); st.rerun()
