@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 from datetime import timedelta, timezone
-import datetime # 修正 datetime 模組引用
+import datetime 
 from supabase import create_client, Client
 import time
 import re
@@ -33,26 +33,19 @@ supabase = init_supabase()
 # 🔐 Google 登入防護網 (溫柔等待版)
 # ==========================================
 def login_ui():
-    # 0. 【超級關鍵】先拿取所有的 Cookie 狀態
     cookies = cookie_manager.get_all()
-    
-    # 如果是 None，代表「隱形讀卡機」還在啟動中（需要零點幾秒）！
-    # 我們不顯示登入按鈕，也不強制結束程式，就讓它自然讀取，它讀完會自己觸發重整！
     if cookies is None:
         st.info("🔄 正在讀取您的安全憑證，請稍候...")
         return False
         
-    # 讀卡機啟動完畢，來看看裡面有沒有你的 Email
     saved_email = cookies.get("user_email") if isinstance(cookies, dict) else None
     
-    # 1. 如果 Session 裡有，或是 Cookie 裡有，就直接放行！
     if "user_email" in st.session_state:
         return True
     elif saved_email:
         st.session_state["user_email"] = saved_email
         return True
 
-    # 2. 攔截 Google 登入成功後傳回來的授權碼
     if "code" in st.query_params:
         try:
             code = st.query_params["code"]
@@ -60,11 +53,8 @@ def login_ui():
             email = res.user.email
             st.session_state["user_email"] = email
             
-            # 🍪 發給瀏覽器一張期限 30 天的識別證！
             cookie_manager.set("user_email", email, max_age=30*24*60*60)
-            
             st.query_params.clear()
-            # 讓子彈飛一會兒，確保 Cookie 寫入手機後再重整
             time.sleep(1) 
             st.rerun()
             return True
@@ -72,7 +62,6 @@ def login_ui():
             st.error("登入失敗或授權碼已過期，請重新嘗試。")
             st.query_params.clear()
 
-    # 3. 顯示登入大門
     st.markdown("<h1 style='text-align: center; color: #003366; margin-top: 50px;'>🛋️ 個人資產紀錄網</h1>", unsafe_allow_html=True)
     st.write("")
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -105,13 +94,17 @@ def load_data():
             default_db = {
                 "fee_discount": 6.0, "pledge_amount": 0.0, "account_balance": 0.0, 
                 "credit_loan": 0.0, "other_assets": 0.0, "buy_records": [], "realized_records": [], 
-                "history": {}, "market_data": {}
+                "history": {}, "market_data": {}, 
+                "futures_capital": 0.0, "futures_records": [], "futures_realized": [] 
             }
             supabase.table("user_data").insert({"email": user_email, "data": default_db}).execute()
             return default_db
         else:
             data = response.data[0]["data"]
             if "market_data" not in data: data["market_data"] = {}
+            if "futures_capital" not in data: data["futures_capital"] = 0.0
+            if "futures_records" not in data: data["futures_records"] = []
+            if "futures_realized" not in data: data["futures_realized"] = []
             return data
     except Exception as e:
         st.error(f"資料庫連線異常: {e}")
@@ -127,29 +120,40 @@ if "db" not in st.session_state:
     st.session_state.db = load_data()
 
 db = st.session_state.db
-if "market_data" not in db: db["market_data"] = {}
 
-# --- 核心計算與三引擎爬蟲 ---
+# --- 🚀 核心計算與雙棲爬蟲 ---
 def fetch_price(ticker):
     price = 0.0
     name = ticker
     
-    try:
-        url_w = f"https://www.wantgoo.com/stock/{ticker}"
-        resp_w = requests.get(url_w, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        soup_w = BeautifulSoup(resp_w.text, 'html.parser')
-        
-        deal_span = soup_w.find('span', class_='deal', attrs={'c-model': 'close'})
-        if deal_span and deal_span.text.strip() != "--":
-            price = float(deal_span.text.replace(',', ''))
-            
-        name_h3 = soup_w.find('h3', class_='astock-name', attrs={'c-model': 'name'})
-        if name_h3 and name_h3.text.strip():
-            name = name_h3.text.strip()
-            
-    except:
-        pass
+    # 1. 玩股網 (自動切換現貨 span 與期貨 div)
+    # 把網址轉小寫以增加相容性
+    t_lower = ticker.lower()
+    urls_to_try = [
+        (f"https://www.wantgoo.com/stock/{t_lower}", 'span'),
+        (f"https://www.wantgoo.com/futures/{t_lower}", 'div')
+    ]
+    
+    for url, tag in urls_to_try:
+        try:
+            resp_w = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            if resp_w.status_code == 200:
+                soup_w = BeautifulSoup(resp_w.text, 'html.parser')
+                
+                # 根據你提供的期貨 div 或現貨 span 來抓取
+                deal_node = soup_w.find(tag, class_='deal', attrs={'c-model': 'close'})
+                if deal_node and deal_node.text.strip() != "--":
+                    price = float(deal_node.text.replace(',', ''))
+                    
+                    # 抓取名稱 (把 class 條件拿掉，直接抓 c-model='name' 最穩)
+                    name_h3 = soup_w.find('h3', attrs={'c-model': 'name'})
+                    if name_h3 and name_h3.text.strip():
+                        name = name_h3.text.strip()
+                    break # 抓到就立刻跳出迴圈！
+        except:
+            pass
 
+    # 2. 備用：Google 財經
     if price == 0.0:
         for exchange in ['TPE', 'TWO']:
             if price > 0: break
@@ -162,6 +166,7 @@ def fetch_price(ticker):
                     price = float(p_div.text.replace('$', '').replace(',', ''))
             except: pass
             
+    # 3. 備用：Yahoo 奇摩
     if price == 0.0 or name == ticker:
         try:
             url_y = f"https://tw.stock.yahoo.com/quote/{ticker}"
@@ -205,7 +210,7 @@ def show_settings_dialog():
         time.sleep(1)
         st.rerun()
 
-@st.dialog("➕ 新增股票")
+@st.dialog("➕ 新增現貨股票")
 def show_add_stock_dialog():
     in_date = st.date_input("買進日期")
     in_ticker = st.text_input("股票代號").upper()
@@ -218,7 +223,6 @@ def show_add_stock_dialog():
                 db["market_data"][in_ticker] = {"price": p, "name": n}
                 
             next_id = max([r.get("id", 0) for r in db.get("buy_records", [])] + [0]) + 1
-            if "buy_records" not in db: db["buy_records"] = []
             db["buy_records"].append({
                 "id": next_id, "date": str(in_date), "ticker": in_ticker, 
                 "shares": in_shares, "price": in_price
@@ -227,6 +231,68 @@ def show_add_stock_dialog():
             st.success(f"已新增 {in_ticker}！")
             time.sleep(1)
             st.rerun()
+
+# 🚀 更新：加入 W 代號提示的期貨對話框
+@st.dialog("⚡ 新增期貨部位")
+def show_add_futures_dialog():
+    f_date = st.date_input("建立日期")
+    # 加上專屬的 W 提示
+    f_ticker = st.text_input("商品代號", help="提示：期貨代號前面請加上 W (例如：WCDFJ6)。若輸入一般股票代號 (如 2330)，則會抓現貨價格作參考。").upper()
+    f_name = st.text_input("商品名稱 (如 台積電期, 大台)")
+    f_dir_str = st.selectbox("多空方向", ["做多 (+1)", "做空 (-1)"])
+    f_dir = 1 if "多" in f_dir_str else -1
+    
+    mult_str = st.selectbox("契約規格 (乘數)", [
+        "大台 (200)", "小台 (50)", "微台 (10)", "股票期貨 (2000)", "小型股期 (100)", "自訂"
+    ])
+    if mult_str == "自訂":
+        f_mult = st.number_input("自訂乘數", min_value=1, value=1)
+    else:
+        f_mult = int(re.search(r'\((\d+)\)', mult_str).group(1))
+        
+    f_lots = st.number_input("口數", min_value=1, step=1)
+    f_price = st.number_input("成交價格 (點數/元)", min_value=0.01, step=1.0)
+    
+    if st.button("確認新增期貨", type="primary", use_container_width=True):
+        if f_ticker and f_name:
+            next_id = max([r.get("id", 0) for r in db.get("futures_records", [])] + [0]) + 1
+            db["futures_records"].append({
+                "id": next_id, "date": str(f_date), "ticker": f_ticker, "name": f_name,
+                "direction": f_dir, "multiplier": f_mult, "lots": f_lots, "price": f_price
+            })
+            if f_ticker not in db["market_data"]:
+                p, n = fetch_price(f_ticker) # 新增時自動試抓一次
+                # 如果沒抓到價格，先用手動填入的成交價當現價
+                db["market_data"][f_ticker] = {"price": p if p > 0 else f_price, "name": n if n != f_ticker else f_name}
+            save_data(db)
+            st.success(f"已新增期貨部位 {f_name}！")
+            time.sleep(1)
+            st.rerun()
+
+@st.dialog("🛒 平倉期貨")
+def show_close_futures_dialog(f_id, f_name, f_lots, f_dir):
+    st.markdown(f"### 平倉 {f_name}")
+    st.info(f"目前持有部位: **{f_lots}** 口 ({'做多' if f_dir==1 else '做空'})")
+    sell_date = st.date_input("平倉日期")
+    sell_lots = st.number_input("平倉口數", min_value=1, max_value=f_lots, step=1)
+    sell_price = st.number_input("平倉價格 (點數/元)", min_value=0.01, step=1.0)
+    
+    if st.button("確認平倉", type="primary", use_container_width=True):
+        for r in db["futures_records"]:
+            if r["id"] == f_id:
+                db["futures_realized"].append({
+                    "sell_date": str(sell_date), "ticker": r["ticker"], "name": r["name"],
+                    "direction": r["direction"], "multiplier": r["multiplier"], 
+                    "lots": sell_lots, "buy_price": r["price"], "sell_price": sell_price
+                })
+                r["lots"] -= sell_lots
+                break
+        
+        db["futures_records"] = [r for r in db["futures_records"] if r["lots"] > 0]
+        save_data(db)
+        st.success(f"已成功平倉 {sell_lots} 口！")
+        time.sleep(1)
+        st.rerun()
 
 @st.dialog("🔍 逐筆買進明細與管理")
 def show_details_dialog(ticker, name):
@@ -265,7 +331,6 @@ def show_sell_dialog(ticker, name):
     if st.button("確認賣出", type="primary", use_container_width=True):
         rem = sell_shares
         target_records = sorted([r for r in db.get("buy_records", []) if r["ticker"] == ticker], key=lambda x: x["date"])
-        if "realized_records" not in db: db["realized_records"] = []
         for r in target_records:
             if rem <= 0: break
             take = min(r["shares"], rem)
@@ -282,32 +347,35 @@ def show_sell_dialog(ticker, name):
         st.rerun()
 
 # --- 頂部操作列 ---
-col_space, col_add, col_set, col_update, col_out = st.columns([6, 1, 1, 1, 1])
-with col_add:
-    if st.button("➕", help="新增股票", use_container_width=True): show_add_stock_dialog()
+col_space, col_add_s, col_add_f, col_set, col_update, col_out = st.columns([4, 1, 1, 1, 1, 1])
+with col_add_s:
+    if st.button("➕ 股", help="新增現貨股票", use_container_width=True): show_add_stock_dialog()
+with col_add_f:
+    if st.button("➕ 期", help="新增期貨合約", use_container_width=True): show_add_futures_dialog()
 with col_set:
     if st.button("⚙️", help="設定", use_container_width=True): show_settings_dialog()
 with col_update:
-    if st.button("🔄", help="手動更新最新股價", use_container_width=True):
-        with st.spinner("玩股網雷達掃描中..."):
+    if st.button("🔄", help="自動更新最新股價", use_container_width=True):
+        with st.spinner("雙棲雷達掃描中..."):
             unique_tickers = set([r["ticker"] for r in db.get("buy_records", [])] + [r["ticker"] for r in db.get("realized_records", [])])
-            for t in unique_tickers:
+            fut_tickers = set([r["ticker"] for r in db.get("futures_records", [])])
+            for t in unique_tickers.union(fut_tickers):
                 p, n = fetch_price(t)
-                if p > 0 or n != t:
+                if p > 0: 
                     db["market_data"][t] = {"price": p, "name": n}
             save_data(db)
-        st.success("股價更新完成！")
+        st.success("報價更新完成！")
         time.sleep(0.5)
         st.rerun()
 with col_out:
     if st.button("🚪", help="登出", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.clear()
-        cookie_manager.delete("user_email") # 登出時順手把識別證銷毀
+        cookie_manager.delete("user_email") 
         time.sleep(0.5)
         st.rerun()
 
-# --- 核心數據計算 ---
+# --- 現貨數據計算 ---
 agg = {}
 for r in db.get("buy_records", []):
     t = r["ticker"]
@@ -315,7 +383,7 @@ for r in db.get("buy_records", []):
     agg[t]["shares"] += r["shares"]
     agg[t]["cost_basis"] += r["shares"] * r["price"]
 
-tot_exp, tot_mv, tot_unrealized = 0, 0, 0
+tot_exp, tot_mv, stock_unrealized = 0, 0, 0
 display_data = []
 
 for t, d in agg.items():
@@ -337,7 +405,7 @@ for t, d in agg.items():
     sell_fee = mv * 0.001425 * (db.get("fee_discount", 6.0) / 10.0)
     net_v = mv - sell_fee - (mv * tax_rate)
     un_profit = round(net_v - cost)
-    tot_unrealized += un_profit
+    stock_unrealized += un_profit
     ret_rate = (un_profit / cost) * 100 if cost > 0 else 0
     
     display_data.append({
@@ -345,21 +413,44 @@ for t, d in agg.items():
         "curr_p": curr_p, "mv": mv, "un_profit": un_profit, "ret_rate": ret_rate
     })
 
-tot_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
-tot_profit = tot_unrealized + tot_realized
+stock_realized = sum(calc_cost_profit(r["ticker"], r["shares"], r["buy_price"], r["sell_price"]) for r in db.get("realized_records", []))
 
-# 資金數據與公式
+# --- 🚀 期貨數據計算 ---
+futures_unrealized = 0
+futures_exposure = 0
+for f in db.get("futures_records", []):
+    curr_p = db.get("market_data", {}).get(f["ticker"], {"price": f["price"]})["price"]
+    un_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+    futures_unrealized += un_profit
+    # 曝險為絕對值 (合約價值)
+    exp = curr_p * f["multiplier"] * f["lots"]
+    futures_exposure += exp
+
+futures_realized_profit = 0
+for r in db.get("futures_realized", []):
+    profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+    futures_realized_profit += profit
+
+fut_cap = float(db.get("futures_capital", 0.0))
+# 期貨權益數 = 投入本金 + 所有損益
+futures_equity = fut_cap + futures_unrealized + futures_realized_profit
+
+# --- 總資金與指標 ---
+tot_profit = stock_unrealized + stock_realized + futures_unrealized + futures_realized_profit
+
 acc_bal = float(db.get("account_balance", 0.0))
 oth_assets = float(db.get("other_assets", 0.0))
 pld_amt = float(db.get("pledge_amount", 0.0))
 crd_loan = float(db.get("credit_loan", 0.0))
 
-# 總淨資產 (NAV)
-total_assets = acc_bal + tot_mv + oth_assets - pld_amt - crd_loan
+# 總淨資產 (NAV) = 銀行餘額 + 股票市值 + 其他 + 期貨權益數 - 質押 - 信貸
+total_assets = acc_bal + tot_mv + oth_assets + futures_equity - pld_amt - crd_loan
 
+# 總曝險與槓桿倍數 (精準版)
+lev_numerator = tot_exp + futures_exposure + pld_amt + crd_loan
 if total_assets > 0: 
-    lev_str = f"{tot_exp / total_assets:.2f}x"
-elif total_assets <= 0 and tot_exp > 0: 
+    lev_str = f"{lev_numerator / total_assets:.2f}x"
+elif total_assets <= 0 and lev_numerator > 0: 
     lev_str = "∞"
 else: 
     lev_str = "0.0x"
@@ -384,13 +475,13 @@ if now_tw.hour >= 14:
 # --- 主畫面：極簡大看板 ---
 st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
-m1.metric("總資產", f"${total_assets:,.0f}")
+m1.metric("總淨資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${tot_profit:,.0f}")
 
 st.divider()
 
-# --- 五大分頁 ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📉 未實現", "💰 已實現", "📈 獲利走勢", "📊 資產走勢", "⚖️ 資金控管"])
+# --- 六大分頁 ---
+tab1, tab2, tab_futures, tab3, tab4, tab5 = st.tabs(["📉 股票庫存", "💰 股票已實現", "⚡ 期貨庫存", "📈 獲利走勢", "📊 資產走勢", "⚖️ 資金控管"])
 
 with tab1:
     if display_data:
@@ -412,7 +503,7 @@ with tab1:
                 if btn1.button("🔍 明細", key=f"d_{item['ticker']}", use_container_width=True): show_details_dialog(item['ticker'], item['name'])
                 if btn2.button("🛒 賣出", key=f"s_{item['ticker']}", use_container_width=True): show_sell_dialog(item['ticker'], item['name'])
     else:
-        st.info("目前沒有未實現的庫存喔！快點擊上方 ➕ 新增吧。")
+        st.info("目前沒有未實現的現貨庫存。")
 
 with tab2:
     if db.get("realized_records"):
@@ -427,6 +518,53 @@ with tab2:
                 c3.metric("賣出價格", f"${r['sell_price']:.2f}")
     else:
         st.info("目前還沒有賣出紀錄。")
+
+with tab_futures:
+    st.markdown(f"### ⚡ 總權益數: ${futures_equity:,.0f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("投入本金", f"${fut_cap:,.0f}")
+    c2.metric("未實現損益", f"${futures_unrealized:,.0f}")
+    c3.metric("已實現損益", f"${futures_realized_profit:,.0f}")
+    
+    st.markdown("#### 未平倉部位")
+    if db.get("futures_records"):
+        for f in db["futures_records"]:
+            curr_p = db.get("market_data", {}).get(f["ticker"], {"price": f["price"]})["price"]
+            un_profit = (curr_p - f["price"]) * f["direction"] * f["multiplier"] * f["lots"]
+            dir_str = "🔴 多" if f["direction"] == 1 else "🟢 空"
+            
+            with st.expander(f"【{f['ticker']}】{f['name']} ｜ {dir_str} {f['lots']}口 ｜ 現價: {curr_p}"):
+                fc1, fc2, fc3, fc4 = st.columns(4)
+                fc1.metric("成交價", f"{f['price']}")
+                fc2.metric("現價", f"{curr_p}")
+                fc3.metric("契約乘數", f"{f['multiplier']}")
+                fc4.metric("未實現損益", f"${un_profit:,.0f}")
+                
+                st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+                pc1, pc2, pc3 = st.columns([2, 1, 1])
+                new_p = pc1.number_input("手動更新報價", value=float(curr_p), step=1.0, key=f"fpu_{f['id']}")
+                if pc2.button("💾 更新", key=f"btn_p_{f['id']}", use_container_width=True):
+                    db["market_data"][f["ticker"]] = {"price": new_p, "name": f["name"]}
+                    save_data(db)
+                    st.rerun()
+                if pc3.button("🛒 平倉", key=f"btn_c_{f['id']}", use_container_width=True):
+                    show_close_futures_dialog(f['id'], f['name'], f['lots'], f['direction'])
+    else:
+        st.info("目前沒有未平倉的期貨部位。")
+        
+    st.divider()
+    st.markdown("#### 已實現紀錄")
+    if db.get("futures_realized"):
+        for r in sorted(db["futures_realized"], key=lambda x: x["sell_date"], reverse=True):
+            profit = (r["sell_price"] - r["buy_price"]) * r["direction"] * r["multiplier"] * r["lots"]
+            dir_str = "多" if r["direction"] == 1 else "空"
+            with st.expander(f"{r['sell_date']} ｜ {r['name']} ({dir_str}) {r['lots']}口 ｜ 損益: ${profit:,.0f}"):
+                rc1, rc2, rc3 = st.columns(3)
+                rc1.metric("進場價", f"{r['buy_price']}")
+                rc2.metric("出場價", f"{r['sell_price']}")
+                rc3.metric("乘數", f"{r['multiplier']}")
+    else:
+        st.write("尚無已實現紀錄。")
 
 with tab3:
     st.markdown("### 📈 每日總獲利走勢")
@@ -446,22 +584,25 @@ with tab4:
 
 with tab5:
     st.markdown("#### 🛡️ 風險與獲利指標")
-    rc1, rc2, rc3 = st.columns(3)
-    rc1.metric("總曝險", f"${tot_exp:,.0f}")
-    rc2.metric("槓桿倍數", lev_str)
-    rc3.metric("質押維持率", f"{m_ratio:.1f}%")
+    rc1, rc2, rc3, rc4 = st.columns(4)
+    rc1.metric("股票總曝險", f"${tot_exp:,.0f}")
+    rc2.metric("期貨總曝險", f"${futures_exposure:,.0f}")
+    rc3.metric("總槓桿倍數", lev_str)
+    rc4.metric("質押維持率", f"{m_ratio:.1f}%")
     
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     
     st.markdown("#### 💵 資金編輯區")
-    ec1, ec2, ec3, ec4 = st.columns(4)
+    ec1, ec2, ec3, ec4, ec5 = st.columns(5)
     new_bal = ec1.number_input("銀行帳戶餘額", value=int(acc_bal), step=10000)
-    new_oth = ec2.number_input("其他資產", value=int(oth_assets), step=10000)
-    new_pld = ec3.number_input("質押金額", value=int(pld_amt), step=10000)
-    new_crd = ec4.number_input("信貸金額", value=int(crd_loan), step=10000)
+    new_fut_cap = ec2.number_input("期貨投入本金", value=int(fut_cap), step=10000)
+    new_oth = ec3.number_input("其他資產", value=int(oth_assets), step=10000)
+    new_pld = ec4.number_input("質押金額", value=int(pld_amt), step=10000)
+    new_crd = ec5.number_input("信貸金額", value=int(crd_loan), step=10000)
     
     if st.button("💾 更新資金數據", type="primary"):
         db["account_balance"] = float(new_bal)
+        db["futures_capital"] = float(new_fut_cap)
         db["other_assets"] = float(new_oth)
         db["pledge_amount"] = float(new_pld)
         db["credit_loan"] = float(new_crd)
