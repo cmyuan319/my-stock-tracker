@@ -12,18 +12,18 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-# 💡 網頁名稱固定
-st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
+# 💡 網頁名稱固定，並且預設折疊側邊欄（如果有打開的話）
+st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (終極標籤海嘯版 + 隱藏官方 UI)
+# 📱 🚀 手機版視覺優化 CSS + 👻 隱藏官方 UI 終極版
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 🔥 終極突破：把 Streamlit 新舊版本所有的分欄標籤全部鎖死！強制橫向！ */
+        /* 🔥 強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
         div[data-testid="stColumns"],
         div[data-testid="stHorizontalBlock"],
         div[data-testid="stColumnLayout"],
@@ -84,19 +84,38 @@ st.markdown("""
             font-size: 14px !important; 
         }
     }
-    
+
     /* ========================================== */
-    /* 👻 隱藏 Streamlit 官方預設 UI (全域套用)   */
+    /* 👻 徹底消滅 Streamlit 官方預設 UI (全域套用) */
     /* ========================================== */
-    /* 隱藏右上角的漢堡選單 (Menu) */
-    #MainMenu {visibility: hidden;}
     
-    /* 隱藏右上角的 Deploy 按鈕與整個頂部空白 Header */
-    header {visibility: hidden;}
-    .stDeployButton {display: none;}
+    /* 1. 隱藏整個頂部 Header (包含 Deploy、GitHub、Share、漢堡選單) */
+    [data-testid="stHeader"] {
+        display: none !important;
+    }
     
-    /* 隱藏最底部的 Made with Streamlit 浮水印與 Manage App 按鈕 */
-    footer {visibility: hidden;}
+    /* 2. 隱藏右側工具列 (保險起見再加一層) */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    
+    /* 3. 隱藏頂部彩色裝飾條 */
+    [data-testid="stDecoration"] {
+        display: none !important;
+    }
+    
+    /* 4. 隱藏底部 Footer (Made with Streamlit) */
+    [data-testid="stFooter"], footer {
+        display: none !important;
+    }
+    
+    /* 5. 隱藏右下角的 Manage App 浮動按鈕 */
+    .viewerBadge_container__1QSob,
+    .viewerBadge_link__1S137,
+    .viewerBadge_text__1JaDK,
+    [class^="viewerBadge"] {
+        display: none !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
