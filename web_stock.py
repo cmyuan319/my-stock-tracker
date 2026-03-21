@@ -16,14 +16,14 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈", initial_sidebar_state="collapsed")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS + 👻 隱藏官方 UI 終極版
+# 📱 🚀 手機版視覺優化 CSS + 👻 隱藏 UI 終極版
 # ==========================================
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
     
     @media (max-width: 768px) {
-        /* 🔥 強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
+        /* 強制所有分欄區塊「轉成橫向」，絕對不准變直的疊起來！ */
         div[data-testid="stColumns"],
         div[data-testid="stHorizontalBlock"],
         div[data-testid="stColumnLayout"],
@@ -86,31 +86,25 @@ st.markdown("""
     }
 
     /* ========================================== */
-    /* 👻 徹底消滅 Streamlit 官方預設 UI (全域套用) */
+    /* 👻 徹底消滅不必要的 UI 與按鈕 (全域套用)    */
     /* ========================================== */
     
     /* 1. 隱藏整個頂部 Header (包含 Deploy、GitHub、Share、漢堡選單) */
-    [data-testid="stHeader"] {
-        display: none !important;
-    }
+    [data-testid="stHeader"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stDecoration"] { display: none !important; }
     
-    /* 2. 隱藏右側工具列 (保險起見再加一層) */
-    [data-testid="stToolbar"] {
-        display: none !important;
-    }
+    /* 2. 隱藏底部 Footer (Made with Streamlit) */
+    [data-testid="stFooter"], footer { display: none !important; }
     
-    /* 3. 隱藏頂部彩色裝飾條 */
-    [data-testid="stDecoration"] {
-        display: none !important;
-    }
+    /* 3. 🔥 終極封殺右下角的 Manage App 按鈕 */
+    [class*="viewerBadge"] { display: none !important; }
+    a[href*="manage"] { display: none !important; }
+    #manage-app { display: none !important; }
     
-    /* 4. 隱藏底部 Footer (Made with Streamlit) */
-    [data-testid="stFooter"], footer {
-        display: none !important;
-    }
-    
-    /* 5. 🔥 萬用字元追殺：隱藏右下角的 Manage App 浮動按鈕 */
-    [class*="viewerBadge"] {
+    /* 4. 🔥 拔掉 number_input 旁邊的 + 和 - 按鈕 */
+    div[data-testid="stNumberInputStepUp"],
+    div[data-testid="stNumberInputStepDown"] {
         display: none !important;
     }
     </style>
@@ -315,7 +309,7 @@ if now_tw.hour >= 14:
         save_data(db)
 
 # --- 🚀 UI 介面 ---
-# 💡 將 Apple 預設 17 日的行事曆 📅 改為通用的螺旋日曆圖示 🗓️
+# 💡 日期圖示已經是通用線圈日曆 🗓️ 了！
 st.markdown(f"#### 🗓️ {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
@@ -432,12 +426,12 @@ with t5:
     
     st.markdown("#### ⚖️ 資金手動調整")
     c1, c2 = st.columns(2)
-    # 💡 資金設定全部轉為整數 int()，且加上 step=1000 方便增減
-    nb = c1.number_input("銀行餘額", value=int(float(db.get("account_balance", 0))), step=1000)
-    nfc = c2.number_input("期貨權益數", value=int(float(db.get("futures_capital", 0))), step=1000) 
-    np = c1.number_input("質押金額", value=int(float(db.get("pledge_amount", 0))), step=1000)
-    ncl = c2.number_input("信貸金額", value=int(float(db.get("credit_loan", 0))), step=1000)
-    no = st.number_input("其他資產", value=int(float(db.get("other_assets", 0))), step=1000)
+    # 這裡的輸入框，經過上方的 CSS 魔法，加減號已經灰飛煙滅了！
+    nb = c1.number_input("銀行餘額", value=int(float(db.get("account_balance", 0))))
+    nfc = c2.number_input("期貨權益數", value=int(float(db.get("futures_capital", 0)))) 
+    np = c1.number_input("質押金額", value=int(float(db.get("pledge_amount", 0))))
+    ncl = c2.number_input("信貸金額", value=int(float(db.get("credit_loan", 0))))
+    no = st.number_input("其他資產", value=int(float(db.get("other_assets", 0))))
     
     if st.button("💾 確認更新資料庫", type="primary", use_container_width=True):
         db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = float(nb), float(nfc), float(np), float(ncl), float(no)
