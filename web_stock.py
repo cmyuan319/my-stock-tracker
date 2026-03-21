@@ -109,11 +109,8 @@ st.markdown("""
         display: none !important;
     }
     
-    /* 5. 隱藏右下角的 Manage App 浮動按鈕 */
-    .viewerBadge_container__1QSob,
-    .viewerBadge_link__1S137,
-    .viewerBadge_text__1JaDK,
-    [class^="viewerBadge"] {
+    /* 5. 🔥 萬用字元追殺：隱藏右下角的 Manage App 浮動按鈕 */
+    [class*="viewerBadge"] {
         display: none !important;
     }
     </style>
@@ -318,14 +315,15 @@ if now_tw.hour >= 14:
         save_data(db)
 
 # --- 🚀 UI 介面 ---
-st.markdown(f"#### 📅 {now_tw.strftime('%Y/%m/%d')}")
+# 💡 將 Apple 預設 17 日的行事曆 📅 改為通用的螺旋日曆圖示 🗓️
+st.markdown(f"#### 🗓️ {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
 m2.metric("總獲利", f"${total_profit:,.0f}")
 
 st.divider()
 
-# 💡 純圖示按鈕
+# 純圖示按鈕
 c_a, c_set, c_up, c_out = st.columns(4)
 with c_a:
     if st.button("➕", help="新增股票", use_container_width=True): add_stock()
@@ -346,7 +344,6 @@ with t1:
     if display_stocks:
         df_p = pd.DataFrame(display_stocks)
         
-        # 💡 左邊迷你圓餅圖，右邊前五大持股
         c_pie, c_list = st.columns(2)
         
         with c_pie:
@@ -423,7 +420,7 @@ with t3:
 
 with t4:
     if db["history"]:
-        st.line_chart(pd.DataFrame([{"日期": k, "資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
+        st.line_chart(pd.DataFrame([{"日期": k, "總資產": v["assets"]} for k, v in db["history"].items()]).set_index("日期"))
 
 with t5:
     st.markdown("#### 🛡️ 風險指標")
@@ -435,14 +432,15 @@ with t5:
     
     st.markdown("#### ⚖️ 資金手動調整")
     c1, c2 = st.columns(2)
-    nb = c1.number_input("銀行餘額", value=float(db["account_balance"]))
-    nfc = c2.number_input("期貨權益數", value=float(db.get("futures_capital", 0.0))) 
-    np = c1.number_input("質押金額", value=float(db["pledge_amount"]))
-    ncl = c2.number_input("信貸金額", value=float(db["credit_loan"]))
-    no = st.number_input("其他資產", value=float(db["other_assets"]))
+    # 💡 資金設定全部轉為整數 int()，且加上 step=1000 方便增減
+    nb = c1.number_input("銀行餘額", value=int(float(db.get("account_balance", 0))), step=1000)
+    nfc = c2.number_input("期貨權益數", value=int(float(db.get("futures_capital", 0))), step=1000) 
+    np = c1.number_input("質押金額", value=int(float(db.get("pledge_amount", 0))), step=1000)
+    ncl = c2.number_input("信貸金額", value=int(float(db.get("credit_loan", 0))), step=1000)
+    no = st.number_input("其他資產", value=int(float(db.get("other_assets", 0))), step=1000)
     
     if st.button("💾 確認更新資料庫", type="primary", use_container_width=True):
-        db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = nb, nfc, np, ncl, no
+        db["account_balance"], db["futures_capital"], db["pledge_amount"], db["credit_loan"], db["other_assets"] = float(nb), float(nfc), float(np), float(ncl), float(no)
         save_data(db); st.success("已更新！"); time.sleep(1); st.rerun()
 
 st.markdown("<h1 style='text-align: center; color: #003366; font-size: 28px;'>財富自由之路 💰</h1>", unsafe_allow_html=True)
