@@ -12,7 +12,6 @@ import extra_streamlit_components as stx
 import plotly.express as px
 
 # --- 頁面基本設定 ---
-# 💡 網頁名稱固定，並且預設折疊側邊欄（如果有打開的話）
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈", initial_sidebar_state="collapsed")
 
 # ==========================================
@@ -89,23 +88,38 @@ st.markdown("""
     /* 👻 徹底消滅不必要的 UI 與按鈕 (全域套用)    */
     /* ========================================== */
     
-    /* 1. 隱藏整個頂部 Header (包含 Deploy、GitHub、Share、漢堡選單) */
+    /* 1. 隱藏整個頂部 Header */
     [data-testid="stHeader"] { display: none !important; }
     [data-testid="stToolbar"] { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
     
-    /* 2. 隱藏底部 Footer (Made with Streamlit) */
+    /* 2. 隱藏底部 Footer */
     [data-testid="stFooter"], footer { display: none !important; }
     
-    /* 3. 🔥 終極封殺右下角的 Manage App 按鈕 */
-    [class*="viewerBadge"] { display: none !important; }
-    a[href*="manage"] { display: none !important; }
-    #manage-app { display: none !important; }
+    /* 3. 🔥 感謝 Reid 提供的精準標籤！一槍爆頭 Manage App 按鈕 */
+    [data-testid="manage-app-button"],
+    ._terminalButton_rix23_138,
+    [class^="viewerBadge"], 
+    [class*="viewerBadge"] { 
+        display: none !important; 
+    }
     
-    /* 4. 🔥 拔掉 number_input 旁邊的 + 和 - 按鈕 */
-    div[data-testid="stNumberInputStepUp"],
-    div[data-testid="stNumberInputStepDown"] {
+    /* 4. 🔥 精準狙擊 number_input 的 + 和 - 按鈕 */
+    [data-testid="stNumberInputStepUp"],
+    [data-testid="stNumberInputStepDown"],
+    button[aria-label="Step down"], 
+    button[aria-label="Step up"] {
         display: none !important;
+    }
+    
+    /* 消除瀏覽器原生的輸入框上下箭頭 */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none !important;
+        margin: 0 !important;
+    }
+    input[type="number"] {
+        -moz-appearance: textfield !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -309,7 +323,6 @@ if now_tw.hour >= 14:
         save_data(db)
 
 # --- 🚀 UI 介面 ---
-# 💡 日期圖示已經是通用線圈日曆 🗓️ 了！
 st.markdown(f"#### 🗓️ {now_tw.strftime('%Y/%m/%d')}")
 m1, m2 = st.columns(2)
 m1.metric("總淨資產", f"${total_assets:,.0f}")
@@ -426,7 +439,7 @@ with t5:
     
     st.markdown("#### ⚖️ 資金手動調整")
     c1, c2 = st.columns(2)
-    # 這裡的輸入框，經過上方的 CSS 魔法，加減號已經灰飛煙滅了！
+    # 輸入框
     nb = c1.number_input("銀行餘額", value=int(float(db.get("account_balance", 0))))
     nfc = c2.number_input("期貨權益數", value=int(float(db.get("futures_capital", 0)))) 
     np = c1.number_input("質押金額", value=int(float(db.get("pledge_amount", 0))))
