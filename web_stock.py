@@ -16,7 +16,7 @@ import plotly.express as px
 st.set_page_config(page_title="財富自由之路", layout="wide", page_icon="📈")
 
 # ==========================================
-# 📱 🚀 手機版視覺優化 CSS (終極標籤海嘯版)
+# 📱 🚀 手機版視覺優化 CSS (終極標籤海嘯版 + 隱藏官方 UI)
 # ==========================================
 st.markdown("""
     <style>
@@ -84,6 +84,19 @@ st.markdown("""
             font-size: 14px !important; 
         }
     }
+    
+    /* ========================================== */
+    /* 👻 隱藏 Streamlit 官方預設 UI (全域套用)   */
+    /* ========================================== */
+    /* 隱藏右上角的漢堡選單 (Menu) */
+    #MainMenu {visibility: hidden;}
+    
+    /* 隱藏右上角的 Deploy 按鈕與整個頂部空白 Header */
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    
+    /* 隱藏最底部的 Made with Streamlit 浮水印與 Manage App 按鈕 */
+    footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
